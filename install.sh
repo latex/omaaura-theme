@@ -17,8 +17,8 @@ echo "Copiando arquivos do plugin para $TARGET_PLUGIN_DIR..."
 mkdir -p "$TARGET_PLUGIN_DIR"
 cp -r "$PROJECT_DIR"/manifest.json "$PROJECT_DIR"/BarWidget.qml "$PROJECT_DIR"/README.md "$TARGET_PLUGIN_DIR"/
 mkdir -p "$TARGET_PLUGIN_DIR"/bin
-cp "$PROJECT_DIR"/bin/omaaura-theme "$TARGET_PLUGIN_DIR"/bin/
-chmod +x "$TARGET_PLUGIN_DIR"/bin/omaaura-theme
+ln -nsf "$PROJECT_DIR"/bin/omaaura-theme "$TARGET_PLUGIN_DIR"/bin/omaaura-theme
+chmod +x "$PROJECT_DIR"/bin/omaaura-theme
 mkdir -p "$HOME/.local/bin"
 ln -nsf "$TARGET_PLUGIN_DIR"/bin/omaaura-theme "$HOME/.local/bin/omaaura-theme"
 
