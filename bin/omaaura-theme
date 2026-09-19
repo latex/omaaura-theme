@@ -48,6 +48,22 @@ apply_gpu_color() {
   python3 -c "
 import os, fcntl, ctypes, time
 
+I2C_RDWR = 0x0707
+
+class i2c_msg(ctypes.Structure):
+    _fields_ = [
+        ('addr', ctypes.c_uint16),
+        ('flags', ctypes.c_uint16),
+        ('len', ctypes.c_uint16),
+        ('buf', ctypes.POINTER(ctypes.c_uint8))
+    ]
+
+class i2c_rdwr_ioctl_data(ctypes.Structure):
+    _fields_ = [
+        ('msgs', ctypes.POINTER(i2c_msg)),
+        ('nmsgs', ctypes.c_uint32)
+    ]
+
 def set_gpu(hex_str):
     try:
         r, g, b = int(hex_str[0:2], 16), int(hex_str[2:4], 16), int(hex_str[4:6], 16)
@@ -55,25 +71,22 @@ def set_gpu(hex_str):
         if not os.path.exists(dev_path):
             return
         fd = os.open(dev_path, os.O_RDWR)
-        fcntl.ioctl(fd, 0x0703, 0x67)
+        addr = 0x67
 
-        class smbus_data(ctypes.Union):
-            _fields_ = [('byte', ctypes.c_uint8), ('word', ctypes.c_uint16), ('block', ctypes.c_uint8 * 34)]
-
-        class smbus_ioctl(ctypes.Structure):
-            _fields_ = [('rw', ctypes.c_uint8), ('cmd', ctypes.c_uint8), ('size', ctypes.c_uint32), ('data', ctypes.POINTER(smbus_data))]
-
-        def w_word(cmd, val):
-            d = smbus_data(word=val)
-            fcntl.ioctl(fd, 0x0720, smbus_ioctl(0, cmd, 3, ctypes.pointer(d)))
-
-        def w_byte(cmd, val):
-            d = smbus_data(byte=val)
-            fcntl.ioctl(fd, 0x0720, smbus_ioctl(0, cmd, 2, ctypes.pointer(d)))
+        def i2c_write(data):
+            buf = (ctypes.c_uint8 * len(data))(*data)
+            msg = i2c_msg(addr, 0, len(data), buf)
+            data_struct = i2c_rdwr_ioctl_data(ctypes.pointer(msg), 1)
+            fcntl.ioctl(fd, I2C_RDWR, data_struct)
 
         def ene_w(reg, val):
-            w_word(0x00, ((reg << 8) & 0xFF00) | ((reg >> 8) & 0x00FF))
-            w_byte(0x01, val)
+            i2c_write([0x00, (reg >> 8) & 0xFF, reg & 0xFF])
+            i2c_write([0x01, val])
+
+        def ene_w_block(reg, byte_list):
+            i2c_write([0x00, (reg >> 8) & 0xFF, reg & 0xFF])
+            for val in byte_list:
+                i2c_write([0x01, val])
 
         mode = 1 if (r > 0 or g > 0 or b > 0) else 0
         ene_w(0x8021, mode)
@@ -81,21 +94,14 @@ def set_gpu(hex_str):
         ene_w(0x8023, 0)
         ene_w(0x8020, 0)
 
-        for led in range(4):
-            # V2 registers (0x8160 effect, 0x8100 direct)
-            ene_w(0x8160 + (3 * led) + 0, r)
-            ene_w(0x8160 + (3 * led) + 1, b)
-            ene_w(0x8160 + (3 * led) + 2, g)
-            ene_w(0x8100 + (3 * led) + 0, r)
-            ene_w(0x8100 + (3 * led) + 1, b)
-            ene_w(0x8100 + (3 * led) + 2, g)
-            # V1 registers (0x8010 effect, 0x8000 direct)
-            ene_w(0x8010 + (3 * led) + 0, r)
-            ene_w(0x8010 + (3 * led) + 1, b)
-            ene_w(0x8010 + (3 * led) + 2, g)
-            ene_w(0x8000 + (3 * led) + 0, r)
-            ene_w(0x8000 + (3 * led) + 1, b)
-            ene_w(0x8000 + (3 * led) + 2, g)
+        # RBG order for ENE Aura controllers
+        rbg_block = [r, b, g] * 4
+        # V2 registers (0x8160 effect, 0x8100 direct)
+        ene_w_block(0x8160, rbg_block)
+        ene_w_block(0x8100, rbg_block)
+        # V1 registers (0x8010 effect, 0x8000 direct)
+        ene_w_block(0x8010, rbg_block)
+        ene_w_block(0x8000, rbg_block)
 
         ene_w(0x80A0, 0x01)
         time.sleep(0.02)
