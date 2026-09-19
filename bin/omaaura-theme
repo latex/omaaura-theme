@@ -9,6 +9,7 @@ LOCK_FILE="${XDG_RUNTIME_DIR:-/tmp}/omaaura-theme.lock"
 
 THEME_COLOR_FILE="$HOME/.local/state/omarchy/current/theme/keyboard.rgb"
 THEME_COLORS_TOML="$HOME/.local/state/omarchy/current/theme/colors.toml"
+PROFILE_PATH="$HOME/.config/OpenRGB/profiles/default.json"
 
 get_theme_color() {
   local hex=""
@@ -51,10 +52,29 @@ apply_color() {
   fi
   (
     flock -w 10 200 || exit 1
-    # 1. Configura e ilumina a Zona 1 (ARGB Header do Gabinete/Watercooler com 120 LEDs)
-    openrgb -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 1 -sz 120 -c "$hex" >/dev/null 2>&1
-    # 2. Ilumina a Zona 0 da Placa-Mãe (Aura Mainboard) e a GPU (ASUS TUF RTX 5060 Ti)
-    openrgb -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 0 -c "$hex" -d "ASUS TUF GeForce RTX 5060 Ti Gaming OC" -c "$hex" >/dev/null 2>&1
+
+    mkdir -p "$(dirname "$PROFILE_PATH")"
+    if [[ ! -f "$PROFILE_PATH" ]]; then
+      openrgb -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 1 -sz 120 -c "$hex" >/dev/null 2>&1
+      openrgb --save-profile default >/dev/null 2>&1
+    fi
+
+    python3 -c "
+import json, sys
+color_int = int('$hex', 16)
+p = '$PROFILE_PATH'
+try:
+    with open(p, 'r') as f:
+        d = json.load(f)
+    for c in d['controllers']:
+        c['colors'] = [color_int] * len(c['colors'])
+    with open(p, 'w') as f:
+        json.dump(d, f, indent=4)
+except Exception:
+    sys.exit(1)
+"
+    # Aplica o perfil sincronizado em um único envio atômico
+    openrgb -p default >/dev/null 2>&1
     echo "on:#$hex" > "$STATE_FILE"
   ) 200>"$LOCK_FILE"
 }
@@ -65,8 +85,20 @@ turn_off() {
   fi
   (
     flock -w 10 200 || exit 1
-    openrgb -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 1 -sz 120 -c 000000 >/dev/null 2>&1
-    openrgb -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 0 -c 000000 -d "ASUS TUF GeForce RTX 5060 Ti Gaming OC" -c 000000 >/dev/null 2>&1
+    python3 -c "
+import json, sys
+p = '$PROFILE_PATH'
+try:
+    with open(p, 'r') as f:
+        d = json.load(f)
+    for c in d['controllers']:
+        c['colors'] = [0] * len(c['colors'])
+    with open(p, 'w') as f:
+        json.dump(d, f, indent=4)
+except Exception:
+    sys.exit(1)
+"
+    openrgb -p default >/dev/null 2>&1
     echo "off" > "$STATE_FILE"
   ) 200>"$LOCK_FILE"
 }
