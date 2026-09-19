@@ -1,0 +1,87 @@
+#!/bin/bash
+# omaaura-theme CLI & backend helper
+# Synchronizes ASUS Aura hardware LEDs (Motherboard ROG B550-F, GPU RTX 5060 Ti) with the active Omarchy theme.
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omaaura-theme"
+mkdir -p "$STATE_DIR"
+STATE_FILE="$STATE_DIR/state"
+LOCK_FILE="${XDG_RUNTIME_DIR:-/tmp}/omaaura-theme.lock"
+
+THEME_COLOR_FILE="$HOME/.local/state/omarchy/current/theme/keyboard.rgb"
+THEME_COLORS_TOML="$HOME/.local/state/omarchy/current/theme/colors.toml"
+
+get_theme_color() {
+  local hex=""
+  if [[ -f "$THEME_COLOR_FILE" ]]; then
+    hex=$(sed 's/^#//' "$THEME_COLOR_FILE" | tr -d ' \n\r')
+  fi
+  if [[ ! $hex =~ ^[0-9A-Fa-f]{6}$ ]] && [[ -f "$THEME_COLORS_TOML" ]]; then
+    hex=$(grep -E '^\s*accent\s*=' "$THEME_COLORS_TOML" | sed -E 's/.*"#[0-9A-Fa-f]{6}".*/\0/' | sed -E 's/.*#([0-9A-Fa-f]{6}).*/\1/')
+  fi
+  if [[ ! $hex =~ ^[0-9A-Fa-f]{6}$ ]]; then
+    hex="89b4fa"
+  fi
+  echo "$hex"
+}
+
+apply_color() {
+  local hex="$1"
+  if ! command -v openrgb >/dev/null 2>&1; then
+    echo "Erro: openrgb não está instalado. Instale com: omarchy pkg add openrgb" >&2
+    exit 1
+  fi
+  (
+    flock -w 10 200 || exit 1
+    openrgb --mode static --color "$hex" >/dev/null 2>&1
+    echo "on:#$hex" > "$STATE_FILE"
+  ) 200>"$LOCK_FILE"
+}
+
+turn_off() {
+  if ! command -v openrgb >/dev/null 2>&1; then
+    exit 1
+  fi
+  (
+    flock -w 10 200 || exit 1
+    openrgb --mode off >/dev/null 2>&1
+    echo "off" > "$STATE_FILE"
+  ) 200>"$LOCK_FILE"
+}
+
+case "$1" in
+  sync|"")
+    color=$(get_theme_color)
+    apply_color "$color"
+    ;;
+  set)
+    hex="${2#\#}"
+    if [[ $hex =~ ^[0-9A-Fa-f]{6}$ ]]; then
+      apply_color "$hex"
+    else
+      echo "Cor inválida. Use formato RRGGBB (ex: 89b4fa)." >&2
+      exit 1
+    fi
+    ;;
+  off)
+    turn_off
+    ;;
+  toggle)
+    current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
+    if [[ "$current_state" == off* ]]; then
+      color=$(get_theme_color)
+      apply_color "$color"
+    else
+      turn_off
+    fi
+    ;;
+  status)
+    color=$(get_theme_color)
+    current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
+    echo "Tema atual: #$color"
+    echo "Estado LEDs: $current_state"
+    ;;
+  *)
+    echo "Uso: $0 {sync|set <HEX>|off|toggle|status}"
+    exit 1
+    ;;
+esac

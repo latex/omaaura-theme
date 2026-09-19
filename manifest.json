@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "omaaura-theme",
+  "name": "omaaura-theme",
+  "version": "1.0.0",
+  "author": "leandro",
+  "license": "MIT",
+  "description": "Sincroniza os LEDs do hardware ASUS Aura (placa-mãe ROG e GPU RTX) com o tema Omarchy.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "OmaAura Theme",
+    "description": "Controle e sincronização dos LEDs com o tema ativo",
+    "category": "Hardware",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "showLabel": false
+    },
+    "schema": [
+      {
+        "key": "showLabel",
+        "type": "boolean",
+        "label": "Exibir código HEX da cor na barra",
+        "defaultValue": false
+      }
+    ]
+  }
+}
