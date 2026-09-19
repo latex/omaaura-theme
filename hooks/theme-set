@@ -2,10 +2,13 @@
 # Hook: theme-set
 # Dynamically synchronizes Hardware LEDs with active Omarchy theme.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PLUGIN_BIN="$HOME/.config/omarchy/plugins/omaaura-theme/bin/omaaura-theme"
+LOCAL_BIN="$HOME/.local/bin/omaaura-theme"
 
-if [[ -x "$SCRIPT_DIR/bin/omaaura-theme" ]]; then
-  "$SCRIPT_DIR/bin/omaaura-theme" sync >/dev/null 2>&1 &
+if [[ -x "$PLUGIN_BIN" ]]; then
+  "$PLUGIN_BIN" sync >/dev/null 2>&1 &
+elif [[ -x "$LOCAL_BIN" ]]; then
+  "$LOCAL_BIN" sync >/dev/null 2>&1 &
 elif command -v omaaura-theme >/dev/null 2>&1; then
   omaaura-theme sync >/dev/null 2>&1 &
 fi

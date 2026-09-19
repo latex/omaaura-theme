@@ -19,6 +19,8 @@ cp -r "$PROJECT_DIR"/manifest.json "$PROJECT_DIR"/BarWidget.qml "$PROJECT_DIR"/R
 mkdir -p "$TARGET_PLUGIN_DIR"/bin
 cp "$PROJECT_DIR"/bin/omaaura-theme "$TARGET_PLUGIN_DIR"/bin/
 chmod +x "$TARGET_PLUGIN_DIR"/bin/omaaura-theme
+mkdir -p "$HOME/.local/bin"
+ln -nsf "$TARGET_PLUGIN_DIR"/bin/omaaura-theme "$HOME/.local/bin/omaaura-theme"
 
 # 3. Instalar Hooks do Omarchy
 echo "Configurando hooks do Omarchy..."

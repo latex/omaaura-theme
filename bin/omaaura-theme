@@ -21,7 +21,26 @@ get_theme_color() {
   if [[ ! $hex =~ ^[0-9A-Fa-f]{6}$ ]]; then
     hex="89b4fa"
   fi
-  echo "$hex"
+
+  # Normaliza para brilho maximo (V=1.0 no espaco HSV) para que os LEDs do hardware fiquem 100% acesos
+  local bright_hex
+  bright_hex=$(python3 -c "
+import sys, colorsys
+hex_c = '$hex'
+r, g, b = int(hex_c[0:2], 16)/255.0, int(hex_c[2:4], 16)/255.0, int(hex_c[4:6], 16)/255.0
+h, s, v = colorsys.rgb_to_hsv(r, g, b)
+if s < 0.05:
+    print('ffffff')
+else:
+    r_f, g_f, b_f = colorsys.hsv_to_rgb(h, s, 1.0)
+    print(f'{int(round(r_f*255)):02x}{int(round(g_f*255)):02x}{int(round(b_f*255)):02x}')
+" 2>/dev/null)
+
+  if [[ $bright_hex =~ ^[0-9A-Fa-f]{6}$ ]]; then
+    echo "$bright_hex"
+  else
+    echo "$hex"
+  fi
 }
 
 apply_color() {
@@ -32,9 +51,11 @@ apply_color() {
   fi
   (
     flock -w 10 200 || exit 1
-    # Configura o conector ARGB (Header 1 / Zona 1) com 120 LEDs para cobrir ventoinhas e fitas do gabinete, e atualiza placa-mãe e GPU
-    openrgb --device "ASUS ROG STRIX B550-F GAMING WIFI II" --zone 1 --size 120 --color "$hex" --device "ASUS TUF GeForce RTX 5060 Ti Gaming OC" --color "$hex" >/dev/null 2>&1 || \
-    openrgb --color "$hex" >/dev/null 2>&1
+    # Aplica na Zona 1 (ARGB Header do Gabinete com 120 LEDs), Zona 0 (Aura Mainboard) e GPU
+    openrgb \
+      -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 1 -sz 120 -c "$hex" \
+      -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 0 -c "$hex" \
+      -d "ASUS TUF GeForce RTX 5060 Ti Gaming OC" -c "$hex" >/dev/null 2>&1
     echo "on:#$hex" > "$STATE_FILE"
   ) 200>"$LOCK_FILE"
 }
@@ -45,8 +66,10 @@ turn_off() {
   fi
   (
     flock -w 10 200 || exit 1
-    openrgb --device "ASUS ROG STRIX B550-F GAMING WIFI II" --zone 1 --size 120 --color 000000 --device "ASUS TUF GeForce RTX 5060 Ti Gaming OC" --color 000000 >/dev/null 2>&1 || \
-    openrgb --mode off >/dev/null 2>&1
+    openrgb \
+      -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 1 -sz 120 -c 000000 \
+      -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 0 -c 000000 \
+      -d "ASUS TUF GeForce RTX 5060 Ti Gaming OC" -c 000000 >/dev/null 2>&1
     echo "off" > "$STATE_FILE"
   ) 200>"$LOCK_FILE"
 }
@@ -80,7 +103,7 @@ case "$1" in
   status)
     color=$(get_theme_color)
     current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
-    echo "Tema atual: #$color"
+    echo "Tema atual (normalizado): #$color"
     echo "Estado LEDs: $current_state"
     ;;
   *)
