@@ -1,6 +1,6 @@
 #!/bin/bash
 # omaaura-theme CLI & backend helper
-# Synchronizes ASUS Aura hardware LEDs (Motherboard ROG B550-F, GPU RTX 5060 Ti) with the active Omarchy theme.
+# Synchronizes ASUS Aura hardware LEDs (Motherboard ROG B550-F, ARGB Cabinet Fans/Strips, GPU RTX 5060 Ti) with the active Omarchy theme.
 
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omaaura-theme"
 mkdir -p "$STATE_DIR"
@@ -32,7 +32,9 @@ apply_color() {
   fi
   (
     flock -w 10 200 || exit 1
-    openrgb --mode static --color "$hex" >/dev/null 2>&1
+    # Configura o conector ARGB (Header 1 / Zona 1) com 120 LEDs para cobrir ventoinhas e fitas do gabinete, e atualiza placa-mãe e GPU
+    openrgb --device "ASUS ROG STRIX B550-F GAMING WIFI II" --zone 1 --size 120 --color "$hex" --device "ASUS TUF GeForce RTX 5060 Ti Gaming OC" --color "$hex" >/dev/null 2>&1 || \
+    openrgb --color "$hex" >/dev/null 2>&1
     echo "on:#$hex" > "$STATE_FILE"
   ) 200>"$LOCK_FILE"
 }
@@ -43,6 +45,7 @@ turn_off() {
   fi
   (
     flock -w 10 200 || exit 1
+    openrgb --device "ASUS ROG STRIX B550-F GAMING WIFI II" --zone 1 --size 120 --color 000000 --device "ASUS TUF GeForce RTX 5060 Ti Gaming OC" --color 000000 >/dev/null 2>&1 || \
     openrgb --mode off >/dev/null 2>&1
     echo "off" > "$STATE_FILE"
   ) 200>"$LOCK_FILE"
