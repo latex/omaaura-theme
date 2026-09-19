@@ -22,7 +22,7 @@ get_theme_color() {
     hex="89b4fa"
   fi
 
-  # Normaliza para brilho maximo (V=1.0 no espaco HSV) para que os LEDs do hardware fiquem 100% acesos
+  # Normaliza para brilho maximo (V=1.0 no espaco HSV)
   local bright_hex
   bright_hex=$(python3 -c "
 import sys, colorsys
@@ -51,11 +51,10 @@ apply_color() {
   fi
   (
     flock -w 10 200 || exit 1
-    # Aplica na Zona 1 (ARGB Header do Gabinete com 120 LEDs), Zona 0 (Aura Mainboard) e GPU
-    openrgb \
-      -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 1 -sz 120 -c "$hex" \
-      -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 0 -c "$hex" \
-      -d "ASUS TUF GeForce RTX 5060 Ti Gaming OC" -c "$hex" >/dev/null 2>&1
+    # 1. Configura e ilumina a Zona 1 (ARGB Header do Gabinete/Watercooler com 120 LEDs)
+    openrgb -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 1 -sz 120 -c "$hex" >/dev/null 2>&1
+    # 2. Ilumina a Zona 0 da Placa-Mãe (Aura Mainboard) e a GPU (ASUS TUF RTX 5060 Ti)
+    openrgb -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 0 -c "$hex" -d "ASUS TUF GeForce RTX 5060 Ti Gaming OC" -c "$hex" >/dev/null 2>&1
     echo "on:#$hex" > "$STATE_FILE"
   ) 200>"$LOCK_FILE"
 }
@@ -66,10 +65,8 @@ turn_off() {
   fi
   (
     flock -w 10 200 || exit 1
-    openrgb \
-      -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 1 -sz 120 -c 000000 \
-      -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 0 -c 000000 \
-      -d "ASUS TUF GeForce RTX 5060 Ti Gaming OC" -c 000000 >/dev/null 2>&1
+    openrgb -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 1 -sz 120 -c 000000 >/dev/null 2>&1
+    openrgb -d "ASUS ROG STRIX B550-F GAMING WIFI II" -z 0 -c 000000 -d "ASUS TUF GeForce RTX 5060 Ti Gaming OC" -c 000000 >/dev/null 2>&1
     echo "off" > "$STATE_FILE"
   ) 200>"$LOCK_FILE"
 }
