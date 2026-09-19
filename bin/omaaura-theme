@@ -1,6 +1,6 @@
 #!/bin/bash
 # omaaura-theme CLI & backend helper
-# Synchronizes ASUS Aura hardware LEDs (Motherboard ROG B550-F, ARGB Cabinet Fans/Strips, GPU RTX 5060 Ti) with the active Omarchy theme.
+# Synchronizes ASUS Aura hardware LEDs (Motherboard ROG B550-F, ARGB Cabinet Fans/Strips, GPU TUF RTX 5060 Ti) with the active Omarchy theme.
 
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omaaura-theme"
 mkdir -p "$STATE_DIR"
@@ -22,7 +22,7 @@ get_theme_color() {
     hex="89b4fa"
   fi
 
-  # Normaliza para brilho maximo (V=1.0 no espaco HSV)
+  # Normaliza para brilho máximo (V=1.0 no espaço HSV)
   local bright_hex
   bright_hex=$(python3 -c "
 import sys, colorsys
@@ -43,6 +43,65 @@ else:
   fi
 }
 
+apply_gpu_color() {
+  local hex="$1"
+  python3 -c "
+import os, fcntl, ctypes, time
+
+def set_gpu(hex_str):
+    try:
+        r, g, b = int(hex_str[0:2], 16), int(hex_str[2:4], 16), int(hex_str[4:6], 16)
+        dev_path = '/dev/i2c-1'
+        if not os.path.exists(dev_path):
+            return
+        fd = os.open(dev_path, os.O_RDWR)
+        fcntl.ioctl(fd, 0x0703, 0x67)
+
+        class smbus_data(ctypes.Union):
+            _fields_ = [('byte', ctypes.c_uint8), ('word', ctypes.c_uint16), ('block', ctypes.c_uint8 * 34)]
+
+        class smbus_ioctl(ctypes.Structure):
+            _fields_ = [('rw', ctypes.c_uint8), ('cmd', ctypes.c_uint8), ('size', ctypes.c_uint32), ('data', ctypes.POINTER(smbus_data))]
+
+        def w_word(cmd, val):
+            d = smbus_data(word=val)
+            fcntl.ioctl(fd, 0x0720, smbus_ioctl(0, cmd, 3, ctypes.pointer(d)))
+
+        def w_byte(cmd, val):
+            d = smbus_data(byte=val)
+            fcntl.ioctl(fd, 0x0720, smbus_ioctl(0, cmd, 2, ctypes.pointer(d)))
+
+        def ene_w(reg, val):
+            w_word(0x00, ((reg << 8) & 0xFF00) | ((reg >> 8) & 0x00FF))
+            w_byte(0x01, val)
+
+        mode = 1 if (r > 0 or g > 0 or b > 0) else 0
+        ene_w(0x8021, mode)
+        ene_w(0x8022, 2)
+        ene_w(0x8023, 0)
+        ene_w(0x8020, 0)
+
+        for led in range(4):
+            reg_eff = 0x8160 + (3 * led)
+            ene_w(reg_eff + 0, r)
+            ene_w(reg_eff + 1, b)
+            ene_w(reg_eff + 2, g)
+            reg_dir = 0x8100 + (3 * led)
+            ene_w(reg_dir + 0, r)
+            ene_w(reg_dir + 1, b)
+            ene_w(reg_dir + 2, g)
+
+        ene_w(0x80A0, 0x01)
+        time.sleep(0.02)
+        ene_w(0x80A0, 0xAA)
+        os.close(fd)
+    except Exception:
+        pass
+
+set_gpu('$hex')
+" 2>/dev/null
+}
+
 apply_color() {
   local hex="$1"
   if ! command -v openrgb >/dev/null 2>&1; then
@@ -51,7 +110,9 @@ apply_color() {
   fi
   (
     flock -w 10 200 || exit 1
-    # Aplica globalmente em todos os dispositivos e zonas registradas (GPU, Placa-mãe e Gabinete ARGB com 120 LEDs)
+    # 1. Aplica na GPU (ASUS TUF RTX 5060 Ti via I2C ENE SMBus direto)
+    apply_gpu_color "$hex"
+    # 2. Aplica na Placa-mãe ROG B550-F e Gabinete ARGB com 120 LEDs
     openrgb -c "$hex" >/dev/null 2>&1
     echo "on:#$hex" > "$STATE_FILE"
   ) 200>"$LOCK_FILE"
@@ -63,6 +124,7 @@ turn_off() {
   fi
   (
     flock -w 10 200 || exit 1
+    apply_gpu_color "000000"
     openrgb -c 000000 >/dev/null 2>&1
     echo "off" > "$STATE_FILE"
   ) 200>"$LOCK_FILE"
