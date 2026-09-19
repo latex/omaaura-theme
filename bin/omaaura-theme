@@ -82,14 +82,20 @@ def set_gpu(hex_str):
         ene_w(0x8020, 0)
 
         for led in range(4):
-            reg_eff = 0x8160 + (3 * led)
-            ene_w(reg_eff + 0, r)
-            ene_w(reg_eff + 1, b)
-            ene_w(reg_eff + 2, g)
-            reg_dir = 0x8100 + (3 * led)
-            ene_w(reg_dir + 0, r)
-            ene_w(reg_dir + 1, b)
-            ene_w(reg_dir + 2, g)
+            # V2 registers (0x8160 effect, 0x8100 direct)
+            ene_w(0x8160 + (3 * led) + 0, r)
+            ene_w(0x8160 + (3 * led) + 1, b)
+            ene_w(0x8160 + (3 * led) + 2, g)
+            ene_w(0x8100 + (3 * led) + 0, r)
+            ene_w(0x8100 + (3 * led) + 1, b)
+            ene_w(0x8100 + (3 * led) + 2, g)
+            # V1 registers (0x8010 effect, 0x8000 direct)
+            ene_w(0x8010 + (3 * led) + 0, r)
+            ene_w(0x8010 + (3 * led) + 1, b)
+            ene_w(0x8010 + (3 * led) + 2, g)
+            ene_w(0x8000 + (3 * led) + 0, r)
+            ene_w(0x8000 + (3 * led) + 1, b)
+            ene_w(0x8000 + (3 * led) + 2, g)
 
         ene_w(0x80A0, 0x01)
         time.sleep(0.02)
@@ -112,8 +118,8 @@ apply_color() {
     flock -w 10 200 || exit 1
     # 1. Aplica na GPU (ASUS TUF RTX 5060 Ti via I2C ENE SMBus direto)
     apply_gpu_color "$hex"
-    # 2. Aplica na Placa-mãe ROG B550-F e Gabinete ARGB com 120 LEDs
-    openrgb -c "$hex" >/dev/null 2>&1
+    # 2. Aplica exclusivamente na Placa-mãe ROG B550-F e Gabinete ARGB com 120 LEDs (Device 1)
+    openrgb -d 1 -c "$hex" >/dev/null 2>&1
     echo "on:#$hex" > "$STATE_FILE"
   ) 200>"$LOCK_FILE"
 }
@@ -125,7 +131,7 @@ turn_off() {
   (
     flock -w 10 200 || exit 1
     apply_gpu_color "000000"
-    openrgb -c 000000 >/dev/null 2>&1
+    openrgb -d 1 -c 000000 >/dev/null 2>&1
     echo "off" > "$STATE_FILE"
   ) 200>"$LOCK_FILE"
 }
