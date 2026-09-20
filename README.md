@@ -7,12 +7,14 @@ Plugin para o [Omarchy Linux](https://omarchy.org/) que sincroniza automaticamen
 ## 💡 Recursos
 
 - **Sincronização com o Tema:** Sempre que você troca o tema (`omarchy theme set`), a cor de destaque (`accent`) é imediatamente aplicada aos LEDs do hardware em segundo plano.
-- **Widget na Barra:** Ícone interativo na barra do Omarchy (`BarWidget`) que exibe a cor do tema atual.
-- **Controles Rápidos via Mouse:**
-  - **Clique Esquerdo:** Sincroniza e reaplica a cor do tema atual.
-  - **Clique Direito:** Liga / Desliga a iluminação dos dispositivos.
+- **Detecção Inteligente do Wallpaper:** Extrai automaticamente a cor predominante e os destaques vibrantes do papel de parede ativo (`~/.local/state/omarchy/current/background`). Trocar o wallpaper atualiza a paleta na hora.
+- **Menu Popup Interativo na Barra (`PopupCard`):**
+  - **Clique Esquerdo no Ícone:** Abre o seletor com as cores do tema Omarchy e as cores dominantes do wallpaper atual.
+  - **Clique em Qualquer Cor:** Aplica imediatamente a cor escolhida diretamente nos LEDs de hardware (GPU TUF RTX e Placa-mãe ROG B550-F + Fans ARGB).
+  - **Clique Direito no Ícone:** Liga / Desliga a iluminação sem abrir menus.
 - **CLI Integrada:** Utilitário `bin/omaaura-theme` para controle via terminal e scripts.
 - **Compatível com OpenRGB:** Suporta motherboards ASUS Aura, GPUs, memórias RAM e headers ARGB.
+
 
 ---
 
