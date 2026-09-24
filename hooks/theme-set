@@ -1,14 +1,22 @@
 #!/bin/bash
 # Hook: theme-set
-# Dynamically synchronizes Hardware LEDs with active Omarchy theme.
+# Sincroniza os LEDs de hardware com o tema Omarchy ativo.
+# Instalado por install.sh em ~/.config/omarchy/hooks/theme-set.d/omaaura-theme.sh
+#
+# Resolve o CLI nesta ordem: ~/.local/bin -> pasta do plugin -> PATH.
+# Sem id hardcoded, para sobreviver a mudanças de namespace do plugin.
 
-PLUGIN_BIN="$HOME/.config/omarchy/plugins/omaaura-theme/bin/omaaura-theme"
-LOCAL_BIN="$HOME/.local/bin/omaaura-theme"
+PLUGIN_ID="io.github.latex.omaaura-theme"
 
-if [[ -x "$PLUGIN_BIN" ]]; then
-  "$PLUGIN_BIN" sync >/dev/null 2>&1 &
-elif [[ -x "$LOCAL_BIN" ]]; then
-  "$LOCAL_BIN" sync >/dev/null 2>&1 &
-elif command -v omaaura-theme >/dev/null 2>&1; then
-  omaaura-theme sync >/dev/null 2>&1 &
+for bin in \
+  "$HOME/.local/bin/omaaura" \
+  "$HOME/.config/omarchy/plugins/$PLUGIN_ID/bin/omaaura"; do
+  if [[ -x "$bin" ]]; then
+    "$bin" sync >/dev/null 2>&1 &
+    exit 0
+  fi
+done
+
+if command -v omaaura >/dev/null 2>&1; then
+  omaaura sync >/dev/null 2>&1 &
 fi
