@@ -2,9 +2,16 @@
 set -e
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TARGET_PLUGIN_DIR="$HOME/.config/omarchy/plugins/omaaura-theme"
 
-echo "=== Instalando omaaura-theme ==="
+if ! command -v jq >/dev/null 2>&1; then
+  echo "jq é necessário para ler o manifest. Instale com: omarchy pkg add jq" >&2
+  exit 1
+fi
+
+PLUGIN_ID="$(jq -r '.id' "$PROJECT_DIR/manifest.json")"
+TARGET_PLUGIN_DIR="$HOME/.config/omarchy/plugins/$PLUGIN_ID"
+
+echo "=== Instalando $PLUGIN_ID ==="
 
 # 1. Verificar OpenRGB
 if ! command -v openrgb >/dev/null 2>&1; then
@@ -15,11 +22,13 @@ fi
 # 2. Configurar pasta do plugin em ~/.config/omarchy/plugins/
 echo "Copiando arquivos do plugin para $TARGET_PLUGIN_DIR..."
 mkdir -p "$TARGET_PLUGIN_DIR"
-cp -r "$PROJECT_DIR"/manifest.json "$PROJECT_DIR"/BarWidget.qml "$PROJECT_DIR"/README.md "$TARGET_PLUGIN_DIR"/
+cp -r "$PROJECT_DIR"/manifest.json "$PROJECT_DIR"/BarWidget.qml "$PROJECT_DIR"/README.md "$PROJECT_DIR"/LICENSE "$TARGET_PLUGIN_DIR"/
+cp -r "$PROJECT_DIR"/omaaura "$TARGET_PLUGIN_DIR"/
 mkdir -p "$TARGET_PLUGIN_DIR"/bin
 cp -r "$PROJECT_DIR"/bin/* "$TARGET_PLUGIN_DIR"/bin/
 chmod +x "$TARGET_PLUGIN_DIR"/bin/*
 mkdir -p "$HOME/.local/bin"
+ln -nsf "$TARGET_PLUGIN_DIR"/bin/omaaura "$HOME/.local/bin/omaaura"
 ln -nsf "$TARGET_PLUGIN_DIR"/bin/omaaura-theme "$HOME/.local/bin/omaaura-theme"
 
 
@@ -35,8 +44,8 @@ echo "Validando plugin..."
 omarchy plugin validate "$TARGET_PLUGIN_DIR"
 
 # 5. Ativar plugin e recarregar shell
-echo "Ativando plugin omaaura-theme..."
-omarchy plugin enable omaaura-theme --section right || true
+echo "Ativando plugin $PLUGIN_ID..."
+omarchy plugin enable "$PLUGIN_ID" --section right || true
 omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
 
 # 6. Sincronização inicial

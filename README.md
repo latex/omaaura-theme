@@ -1,6 +1,8 @@
-# omaaura-theme
+# OmaAura Theme
 
 Plugin para o [Omarchy Linux](https://omarchy.org/) que sincroniza automaticamente as cores dos LEDs de hardware (ASUS Aura, placas-mãe ROG/TUF e placas de vídeo GeForce RTX) com o tema visual ativo da área de trabalho.
+
+`id`: `io.github.latex.omaaura-theme` · categoria: **Hardware**
 
 ---
 
@@ -12,8 +14,11 @@ Plugin para o [Omarchy Linux](https://omarchy.org/) que sincroniza automaticamen
   - **Clique Esquerdo no Ícone:** Abre o seletor com as cores do tema Omarchy e as cores dominantes do wallpaper atual.
   - **Clique em Qualquer Cor:** Aplica imediatamente a cor escolhida diretamente nos LEDs de hardware (GPU TUF RTX e Placa-mãe ROG B550-F + Fans ARGB).
   - **Clique Direito no Ícone:** Liga / Desliga a iluminação sem abrir menus.
-- **CLI Integrada:** Utilitário `bin/omaaura-theme` para controle via terminal e scripts.
+- **CLI Integrada:** Utilitário `bin/omaaura` (Python) para controle via terminal e scripts. `bin/omaaura-theme` é apenas um wrapper de compatibilidade.
+- **Calibração de Cor para LEDs:** aplica piso de saturação/valor para que um tom pastel do tema (ex.: `#ed8796`) apareça como uma cor viva no LED em vez de "branco com um pouco de cor". O swatch do popup mostra exatamente a cor calibrada que será enviada ao hardware (ícone = LED).
+- **Sem conflito de backends:** a GPU é controlada exclusivamente por I2C direto (ENE Aura) e o OpenRGB atua **apenas** na placa-mãe, RAM e headers ARGB — nunca na GPU.
 - **Compatível com OpenRGB:** Suporta motherboards ASUS Aura, GPUs, memórias RAM e headers ARGB.
+
 
 
 ---
@@ -21,44 +26,98 @@ Plugin para o [Omarchy Linux](https://omarchy.org/) que sincroniza automaticamen
 ## 🛠️ Requisitos
 
 - **Omarchy Linux** (com `omarchy-shell` / Quickshell).
-- **OpenRGB** (`omarchy pkg add openrgb`).
+- **OpenRGB** — controle da placa-mãe Aura, RAM e headers ARGB: `omarchy pkg add openrgb`.
+- **Python 3** (somente biblioteca padrão) — CLI e geração da paleta.
+- **jq** — exigido pelo `install.sh` e pelo validador de plugin: `omarchy pkg add jq`.
+- **ImageMagick** (`magick`) — extração das cores predominantes do wallpaper: `omarchy pkg add imagemagick`.
+- **Acesso I2C** (`/dev/i2c-*`) para a GPU via ENE Aura. Adicione seu usuário ao grupo `i2c` (exige logout/login):
+  ```bash
+  sudo usermod -aG i2c "$USER"
+  ```
+- **systemd --user** — o serviço `omaaura.service` mantém os LEDs sincronizados em segundo plano.
 
 ---
 
 ## 🚀 Instalação
 
-### Instalação Rápida (via repositório)
+### Via Omarchy Plugin Manager (recomendado)
 ```bash
-./install.sh
+omarchy plugin add https://github.com/latex/omaaura-theme.git --enable --yes
 ```
 
-### Instalação via Omarchy Plugin Manager
+Depois rode o assistente de hardware (detecta GPU/OpenRGB, grava
+`~/.config/omaaura/config.toml` e instala o serviço systemd + hooks):
+
 ```bash
-omarchy plugin add https://github.com/seu-usuario/omaaura-theme.git --enable --yes
+PLUGIN=~/.config/omarchy/plugins/io.github.latex.omaaura-theme
+"$PLUGIN"/bin/omaaura setup
+
+# Opcional: disponibilizar o CLI no PATH
+ln -sf "$PLUGIN"/bin/omaaura ~/.local/bin/omaaura
+```
+
+### Via repositório clonado (desenvolvimento)
+```bash
+git clone https://github.com/latex/omaaura-theme.git
+cd omaaura-theme && ./install.sh
+```
+
+> **Nota de segurança:** plugins Omarchy rodam sem sandbox dentro do processo
+> `omarchy-shell`. Este plugin cria hooks em `~/.config/omarchy/hooks/`, links em
+> `~/.local/bin` e um serviço `systemd --user`; nada além do `omarchy pkg add`
+> das dependências usa privilégio elevado — a entrada no grupo `i2c` é manual.
+
+---
+
+## 🗑️ Remoção
+
+```bash
+omarchy plugin remove io.github.latex.omaaura-theme --yes   # desativa e apaga o plugin
+systemctl --user disable --now omaaura.service 2>/dev/null || true
+rm -f ~/.local/bin/omaaura ~/.local/bin/omaaura-theme
+rm -f ~/.config/omarchy/hooks/theme-set.d/omaaura-theme.sh \
+      ~/.config/omarchy/hooks/post-boot.d/omaaura-theme.sh
+rm -rf ~/.config/omaaura ~/.local/state/omaaura-theme
 ```
 
 ---
 
 ## 💻 Uso via Linha de Comando (CLI)
 
-O script `bin/omaaura-theme` pode ser executado diretamente:
+O utilitário `bin/omaaura` (ou o wrapper `bin/omaaura-theme`) pode ser executado diretamente:
 
 ```bash
 # Sincroniza com a cor do tema Omarchy atual
-bin/omaaura-theme sync
+omaaura sync
 
 # Alterna entre ligado e desligado
-bin/omaaura-theme toggle
+omaaura toggle
 
 # Desliga os LEDs
-bin/omaaura-theme off
+omaaura off
 
-# Aplica uma cor hexadecimal específica
-bin/omaaura-theme set ff007f
+# Aplica uma cor hexadecimal específica (passa pela calibração de LED)
+omaaura set ed8796
 
-# Mostra o status atual
-bin/omaaura-theme status
+# Mostra o status atual (cor calibrada)
+omaaura status
 ```
+
+### 🎨 Calibração de Cor (`~/.config/omaaura/config.toml`)
+
+Monitores e LEDs emitem luz de forma diferente: tons pastel que parecem vivos na
+tela viram "branco com um resto de cor" em LEDs aditivos. A seção `[theme]`
+controla a calibração aplicada antes de escrever no hardware:
+
+```toml
+[theme]
+calibrate_led = true      # liga/desliga a calibração
+saturation_floor = 1.0    # piso de saturação HSV (1.0 = matiz puro; menor = mais suave)
+value_target = 1.0        # brilho alvo (V) enviado ao hardware
+```
+
+O **modo "fiel ao tema"** (padrão) mantém o matiz original: o LED fica exatamente
+igual ao swatch exibido no popup. Reduza `saturation_floor` para tons mais suaves.
 
 ---
 
@@ -68,8 +127,13 @@ bin/omaaura-theme status
 omaaura-theme/
 ├── manifest.json       # Manifest do plugin Omarchy (schemaVersion 1)
 ├── BarWidget.qml       # Widget da barra do Omarchy (Quickshell)
+├── omaaura/            # Pacote Python (core de hardware, cor, config e CLI)
+│   ├── core/           # color.py (calibração), hardware.py, config.py
+│   └── cli/            # setup.py (assistente de configuração)
 ├── bin/
-│   └── omaaura-theme   # CLI e backend de controle do OpenRGB
+│   ├── omaaura         # CLI principal (Python): sync/set/off/toggle/status/daemon
+│   ├── omaaura-theme   # Wrapper de compatibilidade -> bin/omaaura
+│   └── get-palette.py  # Gera a paleta do popup (usa a mesma calibração)
 ├── hooks/
 │   └── theme-set       # Hook para o evento omarchy hook theme-set
 ├── install.sh          # Script de instalação e configuração automática

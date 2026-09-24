@@ -4,13 +4,14 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-BarWidget {
+Panel {
   id: root
-  moduleName: "omaaura-theme"
+  moduleName: "io.github.latex.omaaura-theme"
+  ipcTarget: "io.github.latex.omaaura-theme"
 
   readonly property string home: Quickshell.env("HOME")
   readonly property string scriptPath: {
-    var localBin = decodeURIComponent(String(Qt.resolvedUrl("bin/omaaura-theme")).replace(/^file:\/\//, ""))
+    var localBin = decodeURIComponent(String(Qt.resolvedUrl("bin/omaaura")).replace(/^file:\/\//, ""))
     return localBin
   }
   readonly property string paletteScriptPath: {
@@ -25,12 +26,19 @@ BarWidget {
   property var backgroundColors: []
 
   readonly property bool showLabel: setting("showLabel", false) === true
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
+  readonly property color foreground: bar ? bar.barForeground : Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
-  readonly property string tooltipText: "OmaAura: " + themeColor + " (" + (rgbState === "off" ? "Desligado" : "Ativo") + ")\nClique Esq: Paleta & Cores | Clique Dir: Ligar/Desligar"
+  // A cor do LED vem do wallpaper/estado e pode ser escura demais (ex.: #05121b),
+  // sumindo contra a barra. Abaixo do limiar de luminância, cai para o foreground,
+  // que por definição contrasta com o fundo da barra.
+  readonly property color activeGlyphColor: {
+    var c = Qt.color(root.themeColor)
+    var lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+    return lum < 0.25 ? root.foreground : c
+  }
 
-  onTooltipTextChanged: if (mouseArea.containsMouse && bar && !popup.open) bar.showTooltip(root, tooltipText)
+  readonly property string tooltipText: "OmaAura: " + themeColor + " (" + (rgbState === "off" ? "Desligado" : "Ativo") + ")\nClique: Abrir Paleta | Clique Dir: Ligar/Desligar"
 
   function sync() {
     if (working) return
@@ -39,7 +47,7 @@ BarWidget {
     syncProcess.running = true
   }
 
-  function toggle() {
+  function toggleHardware() {
     if (working) return
     working = true
     syncProcess.command = [root.scriptPath, "toggle"]
@@ -59,8 +67,13 @@ BarWidget {
     }
   }
 
-  implicitWidth: content.implicitWidth + Style.space(10)
-  implicitHeight: barSize
+  implicitWidth: button.implicitWidth
+  implicitHeight: button.implicitHeight
+
+  onOpenedChanged: if (opened) {
+    reloadPalette()
+    Qt.callLater(function() { catcher.forceActiveFocus() })
+  }
 
   // Observa alteração de cor de tema (keyboard.rgb)
   FileView {
@@ -142,318 +155,345 @@ BarWidget {
     reloadPalette()
   }
 
-  Row {
-    id: content
-    anchors.centerIn: parent
-    spacing: Style.space(6)
-
-    OpticalGlyph {
-      anchors.verticalCenter: parent.verticalCenter
-      width: Style.bar.iconSlot
-      height: Style.bar.iconSlot
-      text: root.rgbState === "off" ? "󰌶" : "󰌵"
-      fontFamily: root.fontFamily
-      fontSize: Style.font.icon
-      color: root.rgbState === "off" ? Qt.darker(root.foreground, 1.8) : root.themeColor
-      opacity: root.working ? 0.4 : 1.0
-
-      Behavior on opacity { NumberAnimation { duration: 150 } }
-      Behavior on color { ColorAnimation { duration: 250 } }
-    }
-
-    Text {
-      anchors.verticalCenter: parent.verticalCenter
-      visible: root.showLabel && !root.vertical
-      text: root.themeColor
-      color: root.foreground
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.body
-      renderType: Text.NativeRendering
-    }
-  }
-
-  MouseArea {
-    id: mouseArea
+  WidgetButton {
+    id: button
     anchors.fill: parent
-    hoverEnabled: true
-    acceptedButtons: Qt.LeftButton | Qt.RightButton
-    cursorShape: Qt.PointingHandCursor
-    onClicked: function(mouse) {
-      if (mouse.button === Qt.RightButton) {
-        root.toggle()
+    bar: root.bar
+    // O conteúdo é um filho custom (Row/OpticalGlyph), não `text`. Sem isto o
+    // WidgetButton calcula hasVisualContent=false e aplica opacity 0 (ícone some).
+    hasVisualContent: true
+    keepSpace: true
+    labelVisible: false
+    tooltipText: root.tooltipText
+    fixedWidth: root.showLabel && !button.vertical ? -1 : Style.space(32)
+    implicitWidth: root.showLabel && !button.vertical ? (content.implicitWidth + Style.space(12)) : Style.space(32)
+    implicitHeight: button.barSize
+
+    onPressed: function(mouseButton) {
+      if (mouseButton === Qt.RightButton) {
+        root.toggleHardware()
       } else {
-        if (root.bar) root.bar.hideTooltip(root)
-        root.reloadPalette()
-        popup.open = !popup.open
+        root.toggle()
       }
     }
-    onEntered: if (root.bar && !popup.open) root.bar.showTooltip(root, root.tooltipText)
-    onExited: if (root.bar) root.bar.hideTooltip(root)
+
+    Row {
+      id: content
+      anchors.centerIn: parent
+      spacing: Style.space(6)
+
+      OpticalGlyph {
+        anchors.verticalCenter: parent.verticalCenter
+        width: Style.bar.iconSlot
+        height: Style.bar.iconSlot
+        text: root.rgbState === "off" ? "󰌶" : "󰌵"
+        fontFamily: root.fontFamily
+        fontSize: Style.font.icon
+        color: root.rgbState === "off" ? Qt.darker(root.foreground, 1.8) : root.activeGlyphColor
+        opacity: root.working ? 0.4 : 1.0
+
+        Behavior on opacity { NumberAnimation { duration: 150 } }
+        Behavior on color { ColorAnimation { duration: 250 } }
+      }
+
+      Text {
+        anchors.verticalCenter: parent.verticalCenter
+        visible: root.showLabel && !button.vertical
+        text: root.themeColor
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+        renderType: Text.NativeRendering
+      }
+    }
   }
 
-  PopupCard {
-    id: popup
-    anchorItem: root
+  KeyboardPanel {
+    id: panel
+    anchorItem: button
     bar: root.bar
-    triggerMode: "click"
-    contentWidth: Style.space(310)
-    contentHeight: popupColumn.implicitHeight + Style.space(24)
+    owner: root
+    open: root.opened
+    focusTarget: catcher
+    contentWidth: panel.fittedContentWidth(Style.space(320))
+    contentHeight: panel.fittedContentHeight(popupColumn.implicitHeight)
 
-    Column {
-      id: popupColumn
+    PanelKeyCatcher {
+      id: catcher
       anchors.fill: parent
-      spacing: Style.space(12)
+      onCloseRequested: root.close()
+      onTabRequested: function(direction) { root.switchPanel(direction) }
 
-      // Cabeçalho com status e botão toggle
-      Row {
-        width: parent.width
-        spacing: Style.space(8)
+      Column {
+        id: popupColumn
+        anchors.fill: parent
+        spacing: Style.space(12)
 
-        OpticalGlyph {
-          anchors.verticalCenter: parent.verticalCenter
-          width: Style.bar.iconSlot
-          height: Style.bar.iconSlot
-          text: root.rgbState === "off" ? "󰌶" : "󰌵"
-          fontFamily: root.fontFamily
-          fontSize: Style.font.icon
-          color: root.rgbState === "off" ? Qt.darker(root.foreground, 1.8) : root.themeColor
-        }
+        // Cabeçalho com status e botão toggle
+        Row {
+          width: parent.width
+          spacing: Style.space(8)
 
-        Column {
-          anchors.verticalCenter: parent.verticalCenter
-          width: parent.width - Style.bar.iconSlot - Style.space(16)
-
-          Text {
-            text: "OmaAura LED Hardware"
-            color: Color.popups.text || root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            font.bold: true
+          OpticalGlyph {
+            anchors.verticalCenter: parent.verticalCenter
+            width: Style.bar.iconSlot
+            height: Style.bar.iconSlot
+            text: root.rgbState === "off" ? "󰌶" : "󰌵"
+            fontFamily: root.fontFamily
+            fontSize: Style.font.icon
+            color: root.rgbState === "off" ? Qt.darker(root.foreground, 1.8) : root.activeGlyphColor
           }
 
+          Column {
+            anchors.verticalCenter: parent.verticalCenter
+            width: parent.width - Style.bar.iconSlot - Style.space(16)
+
+            Text {
+              text: "OmaAura LED Hardware"
+              color: Color.popups.text || root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+            }
+
+            Text {
+              text: "Cor ativa: " + root.themeColor + " (" + (root.rgbState === "off" ? "Desligado" : "Ligado") + ")"
+              color: Qt.darker(Color.popups.text || root.foreground, 1.3)
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+          }
+        }
+
+        Rectangle {
+          width: parent.width
+          height: 1
+          implicitHeight: 1
+          color: Color.popups.border
+        }
+
+        // Seção 1: Cor predominante e destaques do Wallpaper
+        Column {
+          width: parent.width
+          spacing: Style.space(6)
+
           Text {
-            text: "Cor ativa: " + root.themeColor + " (" + (root.rgbState === "off" ? "Desligado" : "Ligado") + ")"
+            text: "WALLPAPER ATUAL (PREDOMINANTE)"
             color: Qt.darker(Color.popups.text || root.foreground, 1.3)
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
+            font.bold: true
           }
-        }
-      }
 
-      Rectangle {
-        width: parent.width
-        height: 1
-        color: Color.popups.border
-      }
+          Row {
+            spacing: Style.space(8)
 
-      // Seção 1: Cor predominante e destaques do Wallpaper
-      Column {
-        width: parent.width
-        spacing: Style.space(6)
+            Repeater {
+              model: root.backgroundColors
 
-        Text {
-          text: "WALLPAPER ATUAL (PREDOMINANTE)"
-          color: Qt.darker(Color.popups.text || root.foreground, 1.3)
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          font.bold: true
-        }
+              Rectangle {
+                required property var modelData
+                width: Style.space(90)
+                height: Style.space(38)
+                implicitWidth: Style.space(90)
+                implicitHeight: Style.space(38)
+                radius: Style.cornerRadius
+                // Mostra exatamente a cor que será calibrada e enviada ao LED.
+                readonly property string ledColor: modelData.displayHex || modelData.hex
+                color: ledColor
+                border.color: root.themeColor.toLowerCase() === ledColor.toLowerCase() ? (Color.popups.text || "#ffffff") : "transparent"
+                border.width: 2
 
-        Row {
-          spacing: Style.space(8)
+                MouseArea {
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: {
+                    root.applyHex(parent.ledColor)
+                    root.close()
+                  }
 
-          Repeater {
-            model: root.backgroundColors
-
-            Rectangle {
-              required property var modelData
-              width: Style.space(90)
-              height: Style.space(38)
-              radius: Style.cornerRadius
-              color: modelData.displayHex || modelData.hex
-              border.color: root.themeColor.toLowerCase() === modelData.hex.toLowerCase() ? (Color.popups.text || "#ffffff") : "transparent"
-              border.width: 2
-
-              MouseArea {
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: {
-                  root.applyHex(modelData.hex)
-                  popup.close()
+                  Rectangle {
+                    anchors.fill: parent
+                    radius: Style.cornerRadius
+                    color: "#ffffff"
+                    opacity: parent.containsMouse ? 0.2 : 0.0
+                  }
                 }
 
-                Rectangle {
-                  anchors.fill: parent
-                  radius: Style.cornerRadius
-                  color: "#ffffff"
-                  opacity: parent.containsMouse ? 0.2 : 0.0
+                Column {
+                  anchors.centerIn: parent
+                  spacing: Style.space(1)
+
+                  Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: modelData.name
+                    color: "#ffffff"
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption * 0.85
+                    font.bold: true
+                    style: Text.Outline
+                    styleColor: "#000000"
+                  }
+
+                  Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: (modelData.displayHex || modelData.hex).toUpperCase()
+                    color: "#ffffff"
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption * 0.75
+                    style: Text.Outline
+                    styleColor: "#000000"
+                  }
                 }
               }
+            }
+          }
+        }
 
-              Column {
-                anchors.centerIn: parent
-                spacing: Style.space(1)
+        // Seção 2: Cores do Tema Omarchy
+        Column {
+          width: parent.width
+          spacing: Style.space(6)
+
+          Text {
+            text: "PALETA DO TEMA OMARCHY"
+            color: Qt.darker(Color.popups.text || root.foreground, 1.3)
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+          }
+
+          Grid {
+            columns: 4
+            spacing: Style.space(6)
+
+            Repeater {
+              model: root.themeColors
+
+              Rectangle {
+                required property var modelData
+                width: Style.space(68)
+                height: Style.space(32)
+                implicitWidth: Style.space(68)
+                implicitHeight: Style.space(32)
+                radius: Style.cornerRadius
+                // Mostra exatamente a cor que será calibrada e enviada ao LED.
+                readonly property string ledColor: modelData.displayHex || modelData.hex
+                color: ledColor
+                border.color: root.themeColor.toLowerCase() === ledColor.toLowerCase() ? (Color.popups.text || "#ffffff") : "transparent"
+                border.width: 2
+
+                MouseArea {
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: {
+                    root.applyHex(parent.ledColor)
+                    root.close()
+                  }
+
+                  Rectangle {
+                    anchors.fill: parent
+                    radius: Style.cornerRadius
+                    color: "#ffffff"
+                    opacity: parent.containsMouse ? 0.2 : 0.0
+                  }
+                }
 
                 Text {
-                  anchors.horizontalCenter: parent.horizontalCenter
+                  anchors.centerIn: parent
                   text: modelData.name
                   color: "#ffffff"
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption * 0.85
+                  font.pixelSize: Style.font.caption * 0.8
                   font.bold: true
                   style: Text.Outline
                   styleColor: "#000000"
                 }
-
-                Text {
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  text: modelData.hex.toUpperCase()
-                  color: "#ffffff"
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption * 0.75
-                  style: Text.Outline
-                  styleColor: "#000000"
-                }
               }
             }
           }
         }
-      }
-
-      // Seção 2: Cores do Tema Omarchy
-      Column {
-        width: parent.width
-        spacing: Style.space(6)
-
-        Text {
-          text: "PALETA DO TEMA OMARCHY"
-          color: Qt.darker(Color.popups.text || root.foreground, 1.3)
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          font.bold: true
-        }
-
-        Grid {
-          columns: 4
-          spacing: Style.space(6)
-
-          Repeater {
-            model: root.themeColors
-
-            Rectangle {
-              required property var modelData
-              width: Style.space(68)
-              height: Style.space(32)
-              radius: Style.cornerRadius
-              color: modelData.hex
-              border.color: root.themeColor.toLowerCase() === modelData.hex.toLowerCase() ? (Color.popups.text || "#ffffff") : "transparent"
-              border.width: 2
-
-              MouseArea {
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: {
-                  root.applyHex(modelData.hex)
-                  popup.close()
-                }
-
-                Rectangle {
-                  anchors.fill: parent
-                  radius: Style.cornerRadius
-                  color: "#ffffff"
-                  opacity: parent.containsMouse ? 0.2 : 0.0
-                }
-              }
-
-              Text {
-                anchors.centerIn: parent
-                text: modelData.name
-                color: "#ffffff"
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption * 0.8
-                font.bold: true
-                style: Text.Outline
-                styleColor: "#000000"
-              }
-            }
-          }
-        }
-      }
-
-      Rectangle {
-        width: parent.width
-        height: 1
-        color: Color.popups.border
-      }
-
-      // Rodapé com ações de Sincronizar e Desligar
-      Row {
-        width: parent.width
-        spacing: Style.space(8)
 
         Rectangle {
-          width: (parent.width - Style.space(8)) / 2
-          height: Style.space(28)
-          radius: Style.cornerRadius
+          width: parent.width
+          height: 1
+          implicitHeight: 1
           color: Color.popups.border
-
-          MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: {
-              root.sync()
-              popup.close()
-            }
-            Rectangle {
-              anchors.fill: parent
-              radius: Style.cornerRadius
-              color: "#ffffff"
-              opacity: parent.containsMouse ? 0.15 : 0.0
-            }
-          }
-
-          Text {
-            anchors.centerIn: parent
-            text: "󰁪 Sincronizar"
-            color: Color.popups.text || root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
-          }
         }
 
-        Rectangle {
-          width: (parent.width - Style.space(8)) / 2
-          height: Style.space(28)
-          radius: Style.cornerRadius
-          color: root.rgbState === "off" ? Qt.darker(root.themeColor, 1.2) : Color.popups.border
+        // Rodapé com ações de Sincronizar e Desligar
+        Row {
+          width: parent.width
+          spacing: Style.space(8)
 
-          MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: {
-              root.toggle()
-              popup.close()
-            }
-            Rectangle {
+          Rectangle {
+            width: (parent.width - Style.space(8)) / 2
+            height: Style.space(28)
+            implicitWidth: (parent.width - Style.space(8)) / 2
+            implicitHeight: Style.space(28)
+            radius: Style.cornerRadius
+            color: Color.popups.border
+
+            MouseArea {
               anchors.fill: parent
-              radius: Style.cornerRadius
-              color: "#ffffff"
-              opacity: parent.containsMouse ? 0.15 : 0.0
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: {
+                root.sync()
+                root.close()
+              }
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                color: "#ffffff"
+                opacity: parent.containsMouse ? 0.15 : 0.0
+              }
+            }
+
+            Text {
+              anchors.centerIn: parent
+              text: "󰁪 Sincronizar"
+              color: Color.popups.text || root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
             }
           }
 
-          Text {
-            anchors.centerIn: parent
-            text: root.rgbState === "off" ? "󰌵 Ligar LEDs" : "󰌶 Desligar LEDs"
-            color: Color.popups.text || root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
+          Rectangle {
+            width: (parent.width - Style.space(8)) / 2
+            height: Style.space(28)
+            implicitWidth: (parent.width - Style.space(8)) / 2
+            implicitHeight: Style.space(28)
+            radius: Style.cornerRadius
+            color: root.rgbState === "off" ? Qt.darker(root.themeColor, 1.2) : Color.popups.border
+
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: {
+                root.toggleHardware()
+                root.close()
+              }
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                color: "#ffffff"
+                opacity: parent.containsMouse ? 0.15 : 0.0
+              }
+            }
+
+            Text {
+              anchors.centerIn: parent
+              text: root.rgbState === "off" ? "󰌵 Ligar LEDs" : "󰌶 Desligar LEDs"
+              color: Color.popups.text || root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
           }
         }
       }
