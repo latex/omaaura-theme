@@ -113,6 +113,10 @@ omaaura devices [--json]
 # Lista os backends de hardware registrados (internos + externos)
 omaaura backends
 
+# Identifica dispositivos USB e classifica a controlabilidade do RGB
+omaaura probe              # (+ --json)
+sudo omaaura probe --deep  # strings USB ocultas + protocolo vendor C-Media
+
 # Diagnóstico de I2C/OpenRGB + inventário de backends
 omaaura test-hardware
 ```
@@ -171,6 +175,23 @@ brightness = 100   # vira o env OMAAURA_PARAMS do seu executável
 📖 **Guia completo:** [`docs/BACKENDS.md`](docs/BACKENDS.md) ·
 **Template pronto:** [`examples/backends/example/`](examples/backends/example/).
 
+### 🔎 Identificando hardware desconhecido (`omaaura probe`)
+
+Antes de escrever um backend, descubra **se** o device é controlável — direto do
+hardware:
+
+```bash
+omaaura probe              # tabela USB + veredito RGB
+omaaura probe --json       # idem, em JSON
+sudo omaaura probe --deep  # + strings USB ocultas + comandos vendor (ex.: C-Media)
+```
+
+O veredito é um de: **controlável (backend)** · **controlável (HID LED/LampArray)**
+· **SÓ BOTÃO (sem software)** · **desconhecido (interface vendor)** · **não-RGB**.
+
+> Exemplo real: o `probe` classificou o **FIFINE AM8** (`3142:a010`) como
+> *"SÓ BOTÃO (sem software)"* — confirmado com o fabricante.
+
 ---
 
 ## 📁 Estrutura do Projeto
@@ -185,6 +206,7 @@ omaaura-theme/
 │   ├── color.rs        # Calibração de cor para LEDs
 │   ├── config.rs       # Config TOML (~/.config/omaaura/config.toml)
 │   ├── palette.rs      # Paleta do popup (tema + wallpaper)
+│   ├── probe.rs        # Identificação USB + classificação de RGB (probe)
 │   ├── setup.rs        # Assistente de configuração de hardware
 │   └── backend/        # === Sistema de backends plugáveis ===
 │       ├── mod.rs      # trait `Backend` + tipos (Color, DeviceKind, …)

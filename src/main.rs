@@ -7,6 +7,7 @@ mod backend;
 mod color;
 mod config;
 mod palette;
+mod probe;
 mod setup;
 
 use std::os::fd::AsRawFd;
@@ -55,6 +56,15 @@ enum Cmd {
     },
     /// Lista os backends de hardware registrados (internos + externos)
     Backends,
+    /// Identifica dispositivos USB e classifica a controlabilidade do RGB
+    Probe {
+        /// Sonda profunda: strings ocultas + protocolo vendor C-Media (requer root)
+        #[arg(long)]
+        deep: bool,
+        /// Saída em JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Executa o assistente interativo de configuração
     Setup {
         /// Executa sem prompts, usando os melhores padrões detectados
@@ -292,6 +302,9 @@ fn main() -> Result<()> {
             let cfg = config::load_config();
             let registry = Registry::load();
             cmd_backends(&cfg, &registry);
+        }
+        Cmd::Probe { deep, json } => {
+            probe::run(deep, json)?;
         }
         Cmd::Setup { yes } => {
             setup::run_setup(!yes)?;

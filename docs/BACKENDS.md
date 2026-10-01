@@ -120,9 +120,15 @@ brightness = 100          # vira o OMAAURA_PARAMS para o seu executável
 omaaura backends          # lista backends registrados (id, versão, ativos, tipos)
 omaaura devices           # lista dispositivos controláveis (todos os backends)
 omaaura devices --json    # idem, em JSON
+omaaura probe             # identifica USB e classifica o RGB (controlável/só-botão/não-RGB)
+sudo omaaura probe --deep # + strings ocultas + protocolo vendor (ex.: C-Media)
 omaaura sync              # aplica a cor do tema em todos os backends ativos
 omaaura test-hardware     # diagnóstico (I2C + OpenRGB + inventário)
 ```
+
+> **Antes de escrever um backend**, rode `omaaura probe`: ele diz se o hardware
+> expõe algum canal de LED (HID LED/LampArray, interface vendor, etc.). Se o
+> veredito for *"SÓ BOTÃO"*, não há backend possível.
 
 ---
 
