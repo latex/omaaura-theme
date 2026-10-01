@@ -49,10 +49,14 @@ ln -nsf "$HOME/.config/omarchy/hooks/theme-set.d/omaaura-theme.sh" "$HOME/.confi
 echo "Validando plugin..."
 omarchy plugin validate "$TARGET_PLUGIN_DIR" || true
 
-# 6. Ativar plugin e recarregar shell
+# 6. Ativar plugin e recarregar o shell
+#    O Omarchy desliga o file-watcher do Quickshell de propósito: trocar os
+#    arquivos do plugin NÃO recarrega o QML em execução. Só um restart do shell
+#    aplica a mudança (o antigo `rescanPlugins` não existe e era no-op).
 echo "Ativando plugin $PLUGIN_ID..."
 omarchy plugin enable "$PLUGIN_ID" --section right || true
-omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+echo "Reiniciando o shell para carregar o novo QML..."
+omarchy restart shell || echo "Aviso: rode 'omarchy restart shell' manualmente se o widget não atualizar."
 
 # 7. Sincronização inicial
 echo "Sincronizando iluminação inicial..."
