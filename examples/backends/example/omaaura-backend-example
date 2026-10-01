@@ -1,0 +1,32 @@
+#!/bin/sh
+# Example OmaAura external backend — a "virtual LED" template.
+#
+# Copy this directory to ~/.config/omaaura/backends/example, make this file
+# executable, add "example" to backends.order, and run `omaaura devices`.
+#
+# Protocol (see docs/BACKENDS.md):
+#   <exec> detect          -> {"devices":[{"id","name","kinds":[...]}]}
+#   <exec> apply <rrggbb>  -> {"applied":true}
+#   <exec> off             -> {"applied":true}
+set -eu
+
+CMD="${1:-}"
+
+case "$CMD" in
+  detect)
+    # Optional: read your own config from $OMAAURA_PARAMS (JSON).
+    echo '{"devices":[{"id":"virtual0","name":"Example Virtual LED","kinds":["light"]}]}'
+    ;;
+  apply)
+    COLOR="${2:-000000}"
+    # TODO: write "$COLOR" to your real hardware here.
+    echo "{\"applied\":true,\"devices\":1,\"message\":\"set #${COLOR}\"}"
+    ;;
+  off)
+    echo '{"applied":true,"devices":1}'
+    ;;
+  *)
+    echo '{"applied":false,"message":"unknown command"}' >&2
+    exit 2
+    ;;
+esac

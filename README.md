@@ -92,7 +92,7 @@ rm -rf ~/.config/omaaura ~/.local/state/omaaura-theme
 O utilitário `bin/omaaura` (ou o wrapper `bin/omaaura-theme`) pode ser executado diretamente:
 
 ```bash
-# Sincroniza com a cor do tema Omarchy atual
+# Sincroniza com a cor do tema Omarchy atual (default)
 omaaura sync
 
 # Alterna entre ligado e desligado
@@ -104,8 +104,17 @@ omaaura off
 # Aplica uma cor hexadecimal específica (passa pela calibração de LED)
 omaaura set ed8796
 
-# Mostra o status atual (cor calibrada)
+# Mostra o status atual (cor calibrada + backends ativos)
 omaaura status
+
+# Lista os dispositivos de LED controláveis (todos os backends)
+omaaura devices [--json]
+
+# Lista os backends de hardware registrados (internos + externos)
+omaaura backends
+
+# Diagnóstico de I2C/OpenRGB + inventário de backends
+omaaura test-hardware
 ```
 
 ### 🎨 Calibração de Cor (`~/.config/omaaura/config.toml`)
@@ -126,6 +135,44 @@ igual ao swatch exibido no popup. Reduza `saturation_floor` para tons mais suave
 
 ---
 
+## 🧩 Sistema de Backends (adicione qualquer hardware)
+
+O OmaAura é **agnóstico de hardware**: o núcleo só orquestra **backends**. Cada
+dispositivo suportado é um backend plugável.
+
+| Tipo | Quem escreve | Linguagem | Como entrega |
+| :--- | :--- | :--- | :--- |
+| **Interno** | mantenedores do crate | Rust | `src/backend/builtin/*.rs` |
+| **Externo** | **qualquer dev** | **qualquer** | executável + `backend.toml` |
+
+Backends internos: **`openrgb`** (placa-mãe, RAM, ARGB, teclados…) e
+**`ene_i2c`** (GPU ASUS via I2C direto).
+
+### Escrevendo um backend externo
+
+Basta um `backend.toml` e um executável que responde JSON:
+
+```bash
+omaaura-backend-fifine detect      # -> {"devices":[{"id":"…","name":"…","kinds":["mic"]}]}
+omaaura-backend-fifine apply 0080ff # -> {"applied":true}
+omaaura-backend-fifine off          # -> {"applied":true}
+```
+
+Instale em `~/.config/omaaura/backends/<id>/` e habilite em `config.toml`:
+
+```toml
+[backends]
+order = ["openrgb", "ene_i2c", "fifine"]   # ordem de aplicação (GPU por último)
+
+[fifine]
+brightness = 100   # vira o env OMAAURA_PARAMS do seu executável
+```
+
+📖 **Guia completo:** [`docs/BACKENDS.md`](docs/BACKENDS.md) ·
+**Template pronto:** [`examples/backends/example/`](examples/backends/example/).
+
+---
+
 ## 📁 Estrutura do Projeto
 
 ```
@@ -133,13 +180,22 @@ omaaura-theme/
 ├── manifest.json       # Manifest do plugin Omarchy (schemaVersion 1)
 ├── BarWidget.qml       # Widget da barra do Omarchy (Quickshell)
 ├── Cargo.toml          # Projeto Rust (binário `omaaura` v2)
-├── src/                # Código-fonte Rust (substitui o pacote Python)
-│   ├── main.rs         # CLI (clap) + aplicação/daemon/lock
-│   ├── hardware.rs     # I2C ENE Aura + OpenRGB (guard anti-conflito de GPU)
+├── src/
+│   ├── main.rs         # CLI (clap) + orquestração/daemon/lock
 │   ├── color.rs        # Calibração de cor para LEDs
 │   ├── config.rs       # Config TOML (~/.config/omaaura/config.toml)
 │   ├── palette.rs      # Paleta do popup (tema + wallpaper)
-│   └── setup.rs        # Assistente de configuração de hardware
+│   ├── setup.rs        # Assistente de configuração de hardware
+│   └── backend/        # === Sistema de backends plugáveis ===
+│       ├── mod.rs      # trait `Backend` + tipos (Color, DeviceKind, …)
+│       ├── registry.rs # descoberta + ordem
+│       ├── external.rs # runner de backends externos (JSON, qualquer linguagem)
+│       └── builtin/
+│           ├── openrgb.rs  # placa-mãe/RAM/ARGB (guard anti-conflito de GPU)
+│           └── ene_i2c.rs  # GPU ASUS via I2C direto (ENE Aura)
+├── docs/
+│   └── BACKENDS.md     # Guia para desenvolvedores de hardware
+├── examples/backends/  # Backend de exemplo (template)
 ├── bin/
 │   ├── omaaura         # Wrapper: executa o binário Rust compilado
 │   └── omaaura-theme   # Wrapper de compatibilidade -> bin/omaaura

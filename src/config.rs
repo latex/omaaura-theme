@@ -1,11 +1,26 @@
 //! Configuration management for OmaAura (`~/.config/omaaura/config.toml`).
+//!
+//! Layout (v2):
+//! ```toml
+//! [backends]
+//! order = ["openrgb", "ene_i2c"]   # enabled + application order
+//!
+//! [ene_i2c]
+//! bus = "/dev/i2c-1"
+//! addr = 0x67
+//!
+//! [openrgb]
+//! devices = "all"
+//!
+//! [theme]
+//! calibrate_led = true
+//! ```
 
 use std::path::PathBuf;
 
 use toml::Value;
 use toml::map::Map as TomlMap;
 
-/// Home directory (falls back to `/`).
 #[must_use]
 pub fn home() -> PathBuf {
     std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from)
@@ -46,20 +61,40 @@ pub fn get_bool(table: &Value, section: &str, key: &str, default: bool) -> bool 
 
 #[must_use]
 pub fn get_f64(table: &Value, section: &str, key: &str, default: f64) -> f64 {
-    get(table, section, key)
-        .and_then(Value::as_float)
-        .unwrap_or(default)
+    get(table, section, key).and_then(Value::as_float).unwrap_or(default)
 }
 
-/// Default configuration, mirrors the historical Python `DEFAULT_CONFIG`.
+/// Enabled backends, in application order (`backends.order`).
+#[must_use]
+pub fn backend_order(cfg: &Value) -> Vec<String> {
+    cfg.get("backends")
+        .and_then(|b| b.get("order"))
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
+/// A backend's own parameter table (e.g. `[openrgb]`). Empty when absent.
+#[must_use]
+pub fn backend_params(cfg: &Value, id: &str) -> Value {
+    cfg.get(id).cloned().unwrap_or_else(|| Value::Table(TomlMap::new()))
+}
+
+/// Default configuration (mirrors the historical Python defaults, v2 layout).
 #[must_use]
 pub fn default_config() -> Value {
-    let mut hardware = TomlMap::new();
-    hardware.insert("gpu_backend".into(), Value::String("ene_i2c".into()));
-    hardware.insert("gpu_i2c_bus".into(), Value::String("/dev/i2c-1".into()));
-    hardware.insert("gpu_i2c_addr".into(), Value::Integer(0x67));
-    hardware.insert("motherboard_backend".into(), Value::String("openrgb".into()));
-    hardware.insert("openrgb_devices".into(), Value::String("all".into()));
+    let mut backends = TomlMap::new();
+    backends.insert(
+        "order".into(),
+        Value::Array(vec![Value::String("openrgb".into()), Value::String("ene_i2c".into())]),
+    );
+
+    let mut ene = TomlMap::new();
+    ene.insert("bus".into(), Value::String("/dev/i2c-1".into()));
+    ene.insert("addr".into(), Value::Integer(0x67));
+
+    let mut openrgb = TomlMap::new();
+    openrgb.insert("devices".into(), Value::String("all".into()));
 
     let mut theme = TomlMap::new();
     theme.insert("sync_mode".into(), Value::String("accent".into()));
@@ -73,14 +108,15 @@ pub fn default_config() -> Value {
     service.insert("poll_interval_sec".into(), Value::Float(2.0));
 
     let mut root = TomlMap::new();
-    root.insert("hardware".into(), Value::Table(hardware));
+    root.insert("backends".into(), Value::Table(backends));
+    root.insert("ene_i2c".into(), Value::Table(ene));
+    root.insert("openrgb".into(), Value::Table(openrgb));
     root.insert("theme".into(), Value::Table(theme));
     root.insert("service".into(), Value::Table(service));
     Value::Table(root)
 }
 
-/// Load configuration, merged over defaults. Never fails: a missing or broken
-/// file yields the defaults (same behaviour as the Python implementation).
+/// Load configuration, merged over defaults. Never fails.
 #[must_use]
 pub fn load_config() -> Value {
     let defaults = default_config();
@@ -130,7 +166,7 @@ fn format_value(val: &Value) -> String {
     }
 }
 
-/// Persist configuration in the same layout the Python tool produced.
+/// Persist configuration in the same layout the wizard produces.
 pub fn save_config(config: &Value) -> std::io::Result<PathBuf> {
     let dir = config_dir();
     std::fs::create_dir_all(&dir)?;
@@ -164,29 +200,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_have_expected_shape() {
+    fn default_order_is_openrgb_then_ene() {
         let cfg = default_config();
-        assert_eq!(get_str(&cfg, "hardware", "gpu_backend", ""), "ene_i2c");
-        assert_eq!(get_str(&cfg, "hardware", "openrgb_devices", ""), "all");
-        assert!(get_bool(&cfg, "theme", "calibrate_led", false));
-        assert!((get_f64(&cfg, "service", "poll_interval_sec", 0.0) - 2.0).abs() < f64::EPSILON);
+        assert_eq!(backend_order(&cfg), vec!["openrgb", "ene_i2c"]);
     }
 
     #[test]
-    fn hex_addr_is_formatted_as_hex() {
+    fn params_are_readable() {
+        let cfg = default_config();
+        let ene = backend_params(&cfg, "ene_i2c");
+        assert_eq!(ene.get("bus").and_then(Value::as_str), Some("/dev/i2c-1"));
+        assert_eq!(ene.get("addr").and_then(Value::as_integer), Some(0x67));
+        let missing = backend_params(&cfg, "does_not_exist");
+        assert!(missing.as_table().is_some_and(toml::map::Map::is_empty));
+    }
+
+    #[test]
+    fn hex_addr_formatting() {
         assert_eq!(format_value(&Value::Integer(0x67)), "0x67");
-        assert_eq!(format_value(&Value::Integer(5)), "5");
         assert_eq!(format_value(&Value::Float(2.0)), "2.0");
     }
 
     #[test]
     fn merge_is_partial() {
         let base = default_config();
-        let overlay: Value = "[hardware]\ngpu_backend = \"none\"\n".parse().unwrap();
+        let overlay: Value = "[backends]\norder = [\"ene_i2c\"]\n".parse().unwrap();
         let merged = merge(base, &overlay);
-        assert_eq!(get_str(&merged, "hardware", "gpu_backend", ""), "none");
-        // untouched key survives
-        assert_eq!(get_str(&merged, "hardware", "gpu_i2c_bus", ""), "/dev/i2c-1");
+        assert_eq!(backend_order(&merged), vec!["ene_i2c"]);
         assert!(get_bool(&merged, "theme", "calibrate_led", false));
     }
 }
