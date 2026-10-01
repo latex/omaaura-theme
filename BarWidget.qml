@@ -14,10 +14,6 @@ Panel {
     var localBin = decodeURIComponent(String(Qt.resolvedUrl("bin/omaaura")).replace(/^file:\/\//, ""))
     return localBin
   }
-  readonly property string paletteScriptPath: {
-    var localBin = decodeURIComponent(String(Qt.resolvedUrl("bin/get-palette.py")).replace(/^file:\/\//, ""))
-    return localBin
-  }
 
   property string themeColor: "#89b4fa"
   property string rgbState: "on"
@@ -136,7 +132,7 @@ Panel {
 
   Process {
     id: paletteProcess
-    command: ["python3", root.paletteScriptPath]
+    command: [root.scriptPath, "palette"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {

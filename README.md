@@ -2,7 +2,12 @@
 
 Plugin para o [Omarchy Linux](https://omarchy.org/) que sincroniza automaticamente as cores dos LEDs de hardware (ASUS Aura, placas-mãe ROG/TUF e placas de vídeo GeForce RTX) com o tema visual ativo da área de trabalho.
 
-`id`: `io.github.latex.omaaura-theme` · categoria: **Hardware**
+`id`: `io.github.latex.omaaura-theme` · categoria: **Hardware** · versão: **2.0.0 (Rust)**
+
+> **v2 (2026):** reescrito de Python para um **binário Rust** único. Zero dependência de Python.
+> Corrige o defeito apontado na revisão do marketplace: o backend OpenRGB **nunca** mais roda
+> `openrgb -c` sem filtro `-d` — se os alvos não forem resolvidos, a escrita é ignorada em vez de
+> atingir todos os dispositivos (inclusive a GPU controlada por I2C).
 
 ---
 
@@ -14,7 +19,7 @@ Plugin para o [Omarchy Linux](https://omarchy.org/) que sincroniza automaticamen
   - **Clique Esquerdo no Ícone:** Abre o seletor com as cores do tema Omarchy e as cores dominantes do wallpaper atual.
   - **Clique em Qualquer Cor:** Aplica imediatamente a cor escolhida diretamente nos LEDs de hardware (GPU TUF RTX e Placa-mãe ROG B550-F + Fans ARGB).
   - **Clique Direito no Ícone:** Liga / Desliga a iluminação sem abrir menus.
-- **CLI Integrada:** Utilitário `bin/omaaura` (Python) para controle via terminal e scripts. `bin/omaaura-theme` é apenas um wrapper de compatibilidade.
+- **CLI Integrada:** Utilitário `bin/omaaura` — **binário único em Rust** (v2) para controle via terminal e scripts. `bin/omaaura-theme` é apenas um wrapper de compatibilidade.
 - **Calibração de Cor para LEDs:** aplica piso de saturação/valor para que um tom pastel do tema (ex.: `#ed8796`) apareça como uma cor viva no LED em vez de "branco com um pouco de cor". O swatch do popup mostra exatamente a cor calibrada que será enviada ao hardware (ícone = LED).
 - **Sem conflito de backends:** a GPU é controlada exclusivamente por I2C direto (ENE Aura) e o OpenRGB atua **apenas** na placa-mãe, RAM e headers ARGB — nunca na GPU.
 - **Compatível com OpenRGB:** Suporta motherboards ASUS Aura, GPUs, memórias RAM e headers ARGB.
@@ -27,8 +32,7 @@ Plugin para o [Omarchy Linux](https://omarchy.org/) que sincroniza automaticamen
 
 - **Omarchy Linux** (com `omarchy-shell` / Quickshell).
 - **OpenRGB** — controle da placa-mãe Aura, RAM e headers ARGB: `omarchy pkg add openrgb`.
-- **Python 3** (somente biblioteca padrão) — CLI e geração da paleta.
-- **jq** — exigido pelo `install.sh` e pelo validador de plugin: `omarchy pkg add jq`.
+- **Rust / Cargo** (≥ 1.85) — o CLI é um binário Rust compilado por `install.sh`: `omarchy pkg add rust`.
 - **ImageMagick** (`magick`) — extração das cores predominantes do wallpaper: `omarchy pkg add imagemagick`.
 - **Acesso I2C** (`/dev/i2c-*`) para a GPU via ENE Aura. Adicione seu usuário ao grupo `i2c` (exige logout/login):
   ```bash
@@ -45,15 +49,16 @@ Plugin para o [Omarchy Linux](https://omarchy.org/) que sincroniza automaticamen
 omarchy plugin add https://github.com/latex/omaaura-theme.git --enable --yes
 ```
 
-Depois rode o assistente de hardware (detecta GPU/OpenRGB, grava
-`~/.config/omaaura/config.toml` e instala o serviço systemd + hooks):
+Depois compile o binário e rode o assistente de hardware (detecta GPU/OpenRGB,
+grava `~/.config/omaaura/config.toml` e instala o serviço systemd + hooks):
 
 ```bash
 PLUGIN=~/.config/omarchy/plugins/io.github.latex.omaaura-theme
-"$PLUGIN"/bin/omaaura setup
+( cd "$PLUGIN" && cargo build --release )
+cp "$PLUGIN"/target/release/omaaura "$PLUGIN"/bin/omaaura-bin
 
-# Opcional: disponibilizar o CLI no PATH
-ln -sf "$PLUGIN"/bin/omaaura ~/.local/bin/omaaura
+"$PLUGIN"/bin/omaaura setup                          # config + serviço + hooks
+ln -sf "$PLUGIN"/bin/omaaura ~/.local/bin/omaaura    # CLI no PATH (opcional)
 ```
 
 ### Via repositório clonado (desenvolvimento)
@@ -87,7 +92,7 @@ rm -rf ~/.config/omaaura ~/.local/state/omaaura-theme
 O utilitário `bin/omaaura` (ou o wrapper `bin/omaaura-theme`) pode ser executado diretamente:
 
 ```bash
-# Sincroniza com a cor do tema Omarchy atual
+# Sincroniza com a cor do tema Omarchy atual (default)
 omaaura sync
 
 # Alterna entre ligado e desligado
@@ -99,8 +104,21 @@ omaaura off
 # Aplica uma cor hexadecimal específica (passa pela calibração de LED)
 omaaura set ed8796
 
-# Mostra o status atual (cor calibrada)
+# Mostra o status atual (cor calibrada + backends ativos)
 omaaura status
+
+# Lista os dispositivos de LED controláveis (todos os backends)
+omaaura devices [--json]
+
+# Lista os backends de hardware registrados (internos + externos)
+omaaura backends
+
+# Identifica dispositivos USB e classifica a controlabilidade do RGB
+omaaura probe              # (+ --json)
+sudo omaaura probe --deep  # strings USB ocultas + protocolo vendor C-Media
+
+# Diagnóstico de I2C/OpenRGB + inventário de backends
+omaaura test-hardware
 ```
 
 ### 🎨 Calibração de Cor (`~/.config/omaaura/config.toml`)
@@ -121,22 +139,93 @@ igual ao swatch exibido no popup. Reduza `saturation_floor` para tons mais suave
 
 ---
 
+## 🧩 Sistema de Backends (adicione qualquer hardware)
+
+O OmaAura é **agnóstico de hardware**: o núcleo só orquestra **backends**. Cada
+dispositivo suportado é um backend plugável.
+
+| Tipo | Quem escreve | Linguagem | Como entrega |
+| :--- | :--- | :--- | :--- |
+| **Interno** | mantenedores do crate | Rust | `src/backend/builtin/*.rs` |
+| **Externo** | **qualquer dev** | **qualquer** | executável + `backend.toml` |
+
+Backends internos: **`openrgb`** (placa-mãe, RAM, ARGB, teclados…) e
+**`ene_i2c`** (GPU ASUS via I2C direto).
+
+### Escrevendo um backend externo
+
+Basta um `backend.toml` e um executável que responde JSON:
+
+```bash
+omaaura-backend-fifine detect      # -> {"devices":[{"id":"…","name":"…","kinds":["mic"]}]}
+omaaura-backend-fifine apply 0080ff # -> {"applied":true}
+omaaura-backend-fifine off          # -> {"applied":true}
+```
+
+Instale em `~/.config/omaaura/backends/<id>/` e habilite em `config.toml`:
+
+```toml
+[backends]
+order = ["openrgb", "ene_i2c", "fifine"]   # ordem de aplicação (GPU por último)
+
+[fifine]
+brightness = 100   # vira o env OMAAURA_PARAMS do seu executável
+```
+
+📖 **Guia completo:** [`docs/BACKENDS.md`](docs/BACKENDS.md) ·
+**Template pronto:** [`examples/backends/example/`](examples/backends/example/).
+
+### 🔎 Identificando hardware desconhecido (`omaaura probe`)
+
+Antes de escrever um backend, descubra **se** o device é controlável — direto do
+hardware:
+
+```bash
+omaaura probe              # tabela USB + veredito RGB
+omaaura probe --json       # idem, em JSON
+sudo omaaura probe --deep  # + strings USB ocultas + comandos vendor (ex.: C-Media)
+```
+
+O veredito é um de: **controlável (backend)** · **controlável (HID LED/LampArray)**
+· **SÓ BOTÃO (sem software)** · **desconhecido (interface vendor)** · **não-RGB**.
+
+> Exemplo real: o `probe` classificou o **FIFINE AM8** (`3142:a010`) como
+> *"SÓ BOTÃO (sem software)"* — confirmado com o fabricante.
+
+---
+
 ## 📁 Estrutura do Projeto
 
 ```
 omaaura-theme/
 ├── manifest.json       # Manifest do plugin Omarchy (schemaVersion 1)
 ├── BarWidget.qml       # Widget da barra do Omarchy (Quickshell)
-├── omaaura/            # Pacote Python (core de hardware, cor, config e CLI)
-│   ├── core/           # color.py (calibração), hardware.py, config.py
-│   └── cli/            # setup.py (assistente de configuração)
+├── Cargo.toml          # Projeto Rust (binário `omaaura` v2)
+├── src/
+│   ├── main.rs         # CLI (clap) + orquestração/daemon/lock
+│   ├── color.rs        # Calibração de cor para LEDs
+│   ├── config.rs       # Config TOML (~/.config/omaaura/config.toml)
+│   ├── palette.rs      # Paleta do popup (tema + wallpaper)
+│   ├── probe.rs        # Identificação USB + classificação de RGB (probe)
+│   ├── setup.rs        # Assistente de configuração de hardware
+│   └── backend/        # === Sistema de backends plugáveis ===
+│       ├── mod.rs      # trait `Backend` + tipos (Color, DeviceKind, …)
+│       ├── registry.rs # descoberta + ordem
+│       ├── external.rs # runner de backends externos (JSON, qualquer linguagem)
+│       └── builtin/
+│           ├── openrgb.rs  # placa-mãe/RAM/ARGB (guard anti-conflito de GPU)
+│           └── ene_i2c.rs  # GPU ASUS via I2C direto (ENE Aura)
+├── docs/
+│   └── BACKENDS.md     # Guia para desenvolvedores de hardware
+├── examples/backends/  # Backend de exemplo (template)
 ├── bin/
-│   ├── omaaura         # CLI principal (Python): sync/set/off/toggle/status/daemon
-│   ├── omaaura-theme   # Wrapper de compatibilidade -> bin/omaaura
-│   └── get-palette.py  # Gera a paleta do popup (usa a mesma calibração)
+│   ├── omaaura         # Wrapper: executa o binário Rust compilado
+│   └── omaaura-theme   # Wrapper de compatibilidade -> bin/omaaura
+├── service/
+│   └── omaaura.service # Unidade systemd --user (embutida no binário)
 ├── hooks/
 │   └── theme-set       # Hook para o evento omarchy hook theme-set
-├── install.sh          # Script de instalação e configuração automática
+├── install.sh          # Build (cargo) + instalação e configuração automática
 ├── LICENSE             # Licença MIT
 └── README.md           # Documentação
 ```

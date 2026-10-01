@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.latex.omaaura-theme",
   "name": "OmaAura Theme",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "author": "Leandro Teixeira",
   "license": "MIT",
   "description": "Sincroniza os LEDs do hardware ASUS Aura (placa-mãe ROG/TUF e GPU GeForce RTX) com o tema e o wallpaper ativos do Omarchy.",
