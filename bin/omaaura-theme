@@ -3,9 +3,9 @@
 #
 # Historically this was a standalone bash implementation with its own (and
 # divergent) HSV calibration, which is exactly what made the LEDs disagree
-# with the widget icon.  All logic now lives in the unified Python CLI
-# (bin/omaaura) so the widget, the Omarchy hook and the systemd daemon share a
-# single color pipeline.
+# with the widget icon. All logic now lives in the unified Rust CLI
+# (`bin/omaaura`) so the widget, the Omarchy hook and the systemd daemon share
+# a single color pipeline.
 set -euo pipefail
 
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"

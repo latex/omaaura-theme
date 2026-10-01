@@ -1,6 +1,6 @@
 [Unit]
 Description=OmaAura - ASUS Hardware LED Sync Service for Omarchy
-Documentation=https://github.com/leandros/omaaura-theme
+Documentation=https://github.com/latex/omaaura-theme
 PartOf=graphical-session.target
 After=graphical-session.target
 
@@ -9,7 +9,6 @@ Type=simple
 ExecStart=%h/.local/bin/omaaura daemon
 Restart=on-failure
 RestartSec=5s
-Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=graphical-session.target

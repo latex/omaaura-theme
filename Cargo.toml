@@ -1,0 +1,31 @@
+[package]
+name = "omaaura"
+version = "2.0.0"
+edition = "2024"
+license = "MIT"
+description = "OmaAura: ASUS Aura hardware LED & Omarchy theme synchronization."
+repository = "https://github.com/latex/omaaura-theme"
+authors = ["Leandro Teixeira"]
+
+[[bin]]
+name = "omaaura"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = { version = "0.8", features = ["preserve_order"] }
+
+[profile.release]
+lto = true
+strip = true
+opt-level = "z"
+
+[lints.clippy]
+all = "warn"
+correctness = "deny"
+suspicious = "deny"
