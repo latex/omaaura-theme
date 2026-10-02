@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+# -y/--yes: assume "sim" para as ações opt-in (ex.: adicionar ao grupo i2c).
+# Sem a flag, o instalador PERGUNTA antes de qualquer ação privilegiada.
+OMAURA_ASSUME_YES=0
+for _arg in "$@"; do
+  case "$_arg" in -y|--yes) OMAURA_ASSUME_YES=1 ;; esac
+done
+export OMAURA_ASSUME_YES
+
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ID="io.github.latex.omaaura-theme"
 TARGET_PLUGIN_DIR="$HOME/.config/omarchy/plugins/$PLUGIN_ID"
@@ -58,7 +66,45 @@ omarchy plugin enable "$PLUGIN_ID" --section right || true
 echo "Reiniciando o shell para carregar o novo QML..."
 omarchy restart shell || echo "Aviso: rode 'omarchy restart shell' manualmente se o widget não atualizar."
 
-# 7. Sincronização inicial
+# 7. Acesso I2C (GPU ASUS via ENE Aura) — requer o grupo 'i2c'.
+#    Sem isso, o backend ene_i2c não escreve na GPU. Ação privilegiada e
+#    OPT-IN: só roda com consentimento explícito e é idempotente.
+ensure_i2c_group() {
+  if ! compgen -G '/dev/i2c-*' >/dev/null 2>&1; then
+    echo "ℹ Nenhum /dev/i2c-* encontrado (o módulo i2c-dev carrega ao detectar o hardware)."
+    return 0
+  fi
+  if id -nG "$USER" 2>/dev/null | tr ' ' '\n' | grep -qx i2c; then
+    echo "✔ Grupo 'i2c' já configurado."
+    return 0
+  fi
+  echo "⚠ O controle da GPU via I2C requer o grupo 'i2c'."
+  if [ -t 0 ] && [ "${OMAURA_ASSUME_YES:-0}" != "1" ]; then
+    printf "  Adicionar '%s' ao grupo 'i2c' agora (sudo usermod -aG i2c)? [y/N]: " "$USER"
+    read -r _ans
+    case "$_ans" in
+      [yYsS]*) ;;
+      *) echo "  Pulado. Para habilitar depois: sudo usermod -aG i2c $USER"; return 0 ;;
+    esac
+  elif [ "${OMAURA_ASSUME_YES:-0}" != "1" ]; then
+    echo "  Sem TTY. Para habilitar: sudo usermod -aG i2c $USER"
+    return 0
+  fi
+  if sudo usermod -aG i2c "$USER"; then
+    echo "✔ '$USER' adicionado ao grupo 'i2c'. Faça logout/login para o grupo valer."
+  else
+    echo "⚠ Falha ao adicionar o grupo. Rode manualmente: sudo usermod -aG i2c $USER"
+  fi
+}
+ensure_i2c_group
+
+# 8. Configuração de hardware + serviço (setup NÃO-interativo).
+#    Sem isto o widget abre, mas não controla LEDs: faltariam
+#    ~/.config/omaaura/config.toml e o serviço systemd --user.
+echo "Configurando hardware e serviço (omaaura setup -y)..."
+"$HOME/.local/bin/omaaura" setup -y || echo "⚠ 'omaaura setup -y' falhou; rode 'omaaura setup' manualmente."
+
+# 9. Sincronização inicial
 echo "Sincronizando iluminação inicial..."
 "$HOME/.local/bin/omaaura-theme" sync || true
 
