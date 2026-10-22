@@ -173,7 +173,12 @@ fn apply_color(hex_str: &str, cfg: &TomlValue, registry: &Registry) -> bool {
         }
     }
 
-    let _ = std::fs::write(state_file(), format!("on:{}\n", color.hash()));
+    // Só grava o estado quando a cor REALMENTE foi aplicada: o widget lê este
+    // arquivo para mostrar a cor atual, e gravar aqui uma cor que não chegou
+    // ao hardware seria a mesma mentira que quebrou o plugin.
+    if ok {
+        let _ = std::fs::write(state_file(), format!("on:{}\n", color.hash()));
+    }
     ok
 }
 
@@ -183,16 +188,33 @@ fn turn_off(cfg: &TomlValue, registry: &Registry) -> bool {
         let _ = std::fs::create_dir_all(parent);
     }
     let Ok(_lock) = Lock::acquire() else {
+        eprintln!("Warning: could not acquire hardware lock");
         return false;
     };
+    let mut ok = true;
     for backend in registry.ordered(cfg) {
         let params = config::backend_params(cfg, &backend.id());
-        if let Err(e) = backend.off(&params) {
-            eprintln!("Warning: [{}] {e}", backend.id());
+        match backend.off(&params) {
+            Ok(outcome) => {
+                if !outcome.applied {
+                    ok = false;
+                    if let Some(msg) = outcome.message {
+                        eprintln!("Warning: [{}] {msg}", backend.id());
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Warning: [{}] {e}", backend.id());
+                ok = false;
+            }
         }
     }
-    let _ = std::fs::write(state_file(), "off\n");
-    true
+    // Mesmo contrato de apply_color: o estado só é gravado se o desligamento
+    // realmente aconteceu em todos os backends.
+    if ok {
+        let _ = std::fs::write(state_file(), "off\n");
+    }
+    ok
 }
 
 fn current_state() -> String {
@@ -259,8 +281,12 @@ fn main() -> Result<()> {
             let registry = Registry::load();
             let theme = get_theme_color(&cfg);
             let applied = calibrate_color(&theme, &cfg);
-            apply_color(&theme, &cfg, &registry);
-            println!("OmaAura: Applied theme color #{applied} (from #{theme})");
+            if apply_color(&theme, &cfg, &registry) {
+                println!("OmaAura: Applied theme color #{applied} (from #{theme})");
+            } else {
+                println!("OmaAura: Could NOT apply theme color #{applied} (from #{theme}) — see warnings above.");
+                std::process::exit(1);
+            }
         }
         Cmd::Set { hex } => {
             let cfg = config::load_config();
@@ -270,14 +296,22 @@ fn main() -> Result<()> {
                 bail!("Invalid hex color '{hex}'. Use format RRGGBB.");
             }
             let applied = calibrate_color(clean, &cfg);
-            apply_color(clean, &cfg, &registry);
-            println!("OmaAura: Applied color #{applied} (from #{clean})");
+            if apply_color(clean, &cfg, &registry) {
+                println!("OmaAura: Applied color #{applied} (from #{clean})");
+            } else {
+                println!("OmaAura: Could NOT apply #{applied} (from #{clean}) — see warnings above.");
+                std::process::exit(1);
+            }
         }
         Cmd::Off => {
             let cfg = config::load_config();
             let registry = Registry::load();
-            turn_off(&cfg, &registry);
-            println!("OmaAura: LEDs turned off.");
+            if turn_off(&cfg, &registry) {
+                println!("OmaAura: LEDs turned off.");
+            } else {
+                println!("OmaAura: Could NOT turn the LEDs off — see warnings above.");
+                std::process::exit(1);
+            }
         }
         Cmd::Toggle => {
             let cfg = config::load_config();

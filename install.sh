@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+# -y/--yes: assume "sim" para as ações opt-in (ex.: adicionar ao grupo i2c).
+# Sem a flag, o instalador PERGUNTA antes de qualquer ação privilegiada.
+OMAURA_ASSUME_YES=0
+for _arg in "$@"; do
+  case "$_arg" in -y|--yes) OMAURA_ASSUME_YES=1 ;; esac
+done
+export OMAURA_ASSUME_YES
+
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ID="io.github.latex.omaaura-theme"
 TARGET_PLUGIN_DIR="$HOME/.config/omarchy/plugins/$PLUGIN_ID"
@@ -11,6 +19,28 @@ echo "=== Instalando $PLUGIN_ID (OmaAura v2 — Rust) ==="
 if ! command -v openrgb >/dev/null 2>&1; then
   echo "Instalando dependência openrgb..."
   omarchy pkg add openrgb
+fi
+
+# 1b. O serviço do OpenRGB é OBRIGATÓRIO, não opcional.
+#
+#     O CLI `openrgb -d N -c COR` só escreve de verdade em **modo client**,
+#     isto é, conectado ao servidor SDK do OpenRGB. Sem o servidor no ar ele
+#     detecta os dispositivos, NÃO escreve nada e ainda sai com exit 0 — uma
+#     falha silenciosa que quebrou o plugin (os LEDs ficavam congelados na
+#     cor antiga enquanto o widget jurava ter aplicado).
+#
+#     Por isso: habilitar + iniciar o serviço, e avisar com o comando manual
+#     caso o sudo não esteja disponível.
+if systemctl list-unit-files openrgb.service >/dev/null 2>&1; then
+  echo "Habilitando o serviço do OpenRGB (necessário para aplicar cores)..."
+  if sudo systemctl enable --now openrgb.service; then
+    echo "✔ openrgb.service habilitado e ativo."
+  else
+    echo "⚠ Não foi possível habilitar o openrgb.service (sudo indisponível?)." >&2
+    echo "  Rode manualmente: sudo systemctl enable --now openrgb.service" >&2
+  fi
+else
+  echo "⚠ openrgb.service não encontrado; as cores da placa-mãe não serão aplicadas." >&2
 fi
 
 # 2. Compilar o binário Rust.
@@ -27,7 +57,10 @@ if [ ! -x "$BIN" ]; then
 fi
 
 # 3. Copiar arquivos do plugin para ~/.config/omarchy/plugins/
+#    O daemon (omaaura.service) segura o binário em execução: sem parar antes,
+#    o `cp` falha com "Text file busy" e a atualização fica pela metade.
 echo "Copiando arquivos do plugin para $TARGET_PLUGIN_DIR..."
+systemctl --user stop omaaura.service 2>/dev/null || true
 mkdir -p "$TARGET_PLUGIN_DIR/bin"
 cp "$PROJECT_DIR"/manifest.json "$PROJECT_DIR"/BarWidget.qml "$PROJECT_DIR"/README.md "$PROJECT_DIR"/LICENSE "$TARGET_PLUGIN_DIR"/
 cp "$PROJECT_DIR"/bin/omaaura "$PROJECT_DIR"/bin/omaaura-theme "$TARGET_PLUGIN_DIR"/bin/
@@ -58,7 +91,45 @@ omarchy plugin enable "$PLUGIN_ID" --section right || true
 echo "Reiniciando o shell para carregar o novo QML..."
 omarchy restart shell || echo "Aviso: rode 'omarchy restart shell' manualmente se o widget não atualizar."
 
-# 7. Sincronização inicial
+# 7. Acesso I2C (GPU ASUS via ENE Aura) — requer o grupo 'i2c'.
+#    Sem isso, o backend ene_i2c não escreve na GPU. Ação privilegiada e
+#    OPT-IN: só roda com consentimento explícito e é idempotente.
+ensure_i2c_group() {
+  if ! compgen -G '/dev/i2c-*' >/dev/null 2>&1; then
+    echo "ℹ Nenhum /dev/i2c-* encontrado (o módulo i2c-dev carrega ao detectar o hardware)."
+    return 0
+  fi
+  if id -nG "$USER" 2>/dev/null | tr ' ' '\n' | grep -qx i2c; then
+    echo "✔ Grupo 'i2c' já configurado."
+    return 0
+  fi
+  echo "⚠ O controle da GPU via I2C requer o grupo 'i2c'."
+  if [ -t 0 ] && [ "${OMAURA_ASSUME_YES:-0}" != "1" ]; then
+    printf "  Adicionar '%s' ao grupo 'i2c' agora (sudo usermod -aG i2c)? [y/N]: " "$USER"
+    read -r _ans
+    case "$_ans" in
+      [yYsS]*) ;;
+      *) echo "  Pulado. Para habilitar depois: sudo usermod -aG i2c $USER"; return 0 ;;
+    esac
+  elif [ "${OMAURA_ASSUME_YES:-0}" != "1" ]; then
+    echo "  Sem TTY. Para habilitar: sudo usermod -aG i2c $USER"
+    return 0
+  fi
+  if sudo usermod -aG i2c "$USER"; then
+    echo "✔ '$USER' adicionado ao grupo 'i2c'. Faça logout/login para o grupo valer."
+  else
+    echo "⚠ Falha ao adicionar o grupo. Rode manualmente: sudo usermod -aG i2c $USER"
+  fi
+}
+ensure_i2c_group
+
+# 8. Configuração de hardware + serviço (setup NÃO-interativo).
+#    Sem isto o widget abre, mas não controla LEDs: faltariam
+#    ~/.config/omaaura/config.toml e o serviço systemd --user.
+echo "Configurando hardware e serviço (omaaura setup -y)..."
+"$HOME/.local/bin/omaaura" setup -y || echo "⚠ 'omaaura setup -y' falhou; rode 'omaaura setup' manualmente."
+
+# 9. Sincronização inicial
 echo "Sincronizando iluminação inicial..."
 "$HOME/.local/bin/omaaura-theme" sync || true
 

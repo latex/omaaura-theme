@@ -2,12 +2,18 @@
 
 Plugin para o [Omarchy Linux](https://omarchy.org/) que sincroniza automaticamente as cores dos LEDs de hardware (ASUS Aura, placas-mãe ROG/TUF e placas de vídeo GeForce RTX) com o tema visual ativo da área de trabalho.
 
-`id`: `io.github.latex.omaaura-theme` · categoria: **Hardware** · versão: **2.0.0 (Rust)**
+`id`: `io.github.latex.omaaura-theme` · categoria: **Hardware** · versão: **2.0.1 (Rust)**
 
 > **v2 (2026):** reescrito de Python para um **binário Rust** único. Zero dependência de Python.
 > Corrige o defeito apontado na revisão do marketplace: o backend OpenRGB **nunca** mais roda
 > `openrgb -c` sem filtro `-d` — se os alvos não forem resolvidos, a escrita é ignorada em vez de
 > atingir todos os dispositivos (inclusive a GPU controlada por I2C).
+>
+> **v2.0.1:** corrige a regressão "a cor não muda mais". O CLI do OpenRGB **só aplica cor
+> direta com o servidor SDK rodando**; em modo solitário ele detectava os dispositivos, **não
+> escrevia nada** e ainda saía com *exit 0* — o plugin reportava sucesso sem tocar no hardware.
+> O `install.sh` agora habilita o `openrgb.service` e o backend falha alto (em vez de mentir)
+> quando o servidor não está no ar. Detalhes na issue #4.
 
 ---
 
@@ -32,45 +38,67 @@ Plugin para o [Omarchy Linux](https://omarchy.org/) que sincroniza automaticamen
 
 - **Omarchy Linux** (com `omarchy-shell` / Quickshell).
 - **OpenRGB** — controle da placa-mãe Aura, RAM e headers ARGB: `omarchy pkg add openrgb`.
+  - ⚠️ **O serviço do OpenRGB é obrigatório.** O CLI `openrgb -d N -c COR` só escreve de verdade
+    em *modo client*, isto é, conectado ao servidor SDK. Sem ele, o comando detecta os devices,
+    **não escreve nada** e sai com *exit 0* (falha silenciosa). O `install.sh` já habilita e inicia
+    o serviço; para instalar manualmente:
+    ```bash
+    sudo systemctl enable --now openrgb.service
+    ```
 - **Rust / Cargo** (≥ 1.85) — o CLI é um binário Rust compilado por `install.sh`: `omarchy pkg add rust`.
 - **ImageMagick** (`magick`) — extração das cores predominantes do wallpaper: `omarchy pkg add imagemagick`.
-- **Acesso I2C** (`/dev/i2c-*`) para a GPU via ENE Aura. Adicione seu usuário ao grupo `i2c` (exige logout/login):
+- **Acesso I2C** (`/dev/i2c-*`) para a GPU via ENE Aura. O `install.sh` pode
+  adicionar seu usuário ao grupo `i2c` (com confirmação). Manualmente (exige
+  logout/login):
   ```bash
   sudo usermod -aG i2c "$USER"
   ```
 - **systemd --user** — o serviço `omaaura.service` mantém os LEDs sincronizados em segundo plano.
 
+> **Diagnóstico rápido:** se o widget mostra a cor mas os LEDs não mudam, rode
+> `systemctl is-active openrgb.service` — precisa estar `active`. O `omaaura set #ff0055`
+> também avisa e sai com código ≠ 0 quando o servidor não está rodando.
+
 ---
 
 ## 🚀 Instalação
 
-### Via Omarchy Plugin Manager (recomendado)
+### Via repositório clonado (recomendado — 1 comando)
+Compila o binário, instala arquivos/hooks, **configura o hardware** (grava
+`~/.config/omaaura/config.toml`), instala e habilita o serviço `systemd --user`
+e sincroniza os LEDs:
+
+```bash
+git clone https://github.com/latex/omaaura-theme.git
+cd omaaura-theme && ./install.sh
+```
+
+O instalador **pergunta** antes de qualquer ação privilegiada (adicionar seu
+usuário ao grupo `i2c`). Para consentir sem prompt (scripts/CI), use
+`./install.sh -y` (ou `OMAURA_ASSUME_YES=1`).
+
+### Via Omarchy Plugin Manager
 ```bash
 omarchy plugin add https://github.com/latex/omaaura-theme.git --enable --yes
 ```
 
-Depois compile o binário e rode o assistente de hardware (detecta GPU/OpenRGB,
-grava `~/.config/omaaura/config.toml` e instala o serviço systemd + hooks):
+O plugin manager instala apenas os arquivos (QML + manifest). Depois compile e
+rode o setup não-interativo (é o que o `install.sh` faz sozinho no fluxo acima):
 
 ```bash
 PLUGIN=~/.config/omarchy/plugins/io.github.latex.omaaura-theme
 ( cd "$PLUGIN" && cargo build --release )
 cp "$PLUGIN"/target/release/omaaura "$PLUGIN"/bin/omaaura-bin
 
-"$PLUGIN"/bin/omaaura setup                          # config + serviço + hooks
+"$PLUGIN"/bin/omaaura setup -y                       # config + serviço + hooks
 ln -sf "$PLUGIN"/bin/omaaura ~/.local/bin/omaaura    # CLI no PATH (opcional)
-```
-
-### Via repositório clonado (desenvolvimento)
-```bash
-git clone https://github.com/latex/omaaura-theme.git
-cd omaaura-theme && ./install.sh
 ```
 
 > **Nota de segurança:** plugins Omarchy rodam sem sandbox dentro do processo
 > `omarchy-shell`. Este plugin cria hooks em `~/.config/omarchy/hooks/`, links em
-> `~/.local/bin` e um serviço `systemd --user`; nada além do `omarchy pkg add`
-> das dependências usa privilégio elevado — a entrada no grupo `i2c` é manual.
+> `~/.local/bin` e um serviço `systemd --user`. Além do `omarchy pkg add` das
+> dependências, o instalador **pode** rodar `sudo usermod -aG i2c` — sempre
+> **opt-in** (prompt ou `-y`) e idempotente.
 
 ---
 
