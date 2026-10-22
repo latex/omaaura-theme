@@ -21,6 +21,28 @@ if ! command -v openrgb >/dev/null 2>&1; then
   omarchy pkg add openrgb
 fi
 
+# 1b. O serviço do OpenRGB é OBRIGATÓRIO, não opcional.
+#
+#     O CLI `openrgb -d N -c COR` só escreve de verdade em **modo client**,
+#     isto é, conectado ao servidor SDK do OpenRGB. Sem o servidor no ar ele
+#     detecta os dispositivos, NÃO escreve nada e ainda sai com exit 0 — uma
+#     falha silenciosa que quebrou o plugin (os LEDs ficavam congelados na
+#     cor antiga enquanto o widget jurava ter aplicado).
+#
+#     Por isso: habilitar + iniciar o serviço, e avisar com o comando manual
+#     caso o sudo não esteja disponível.
+if systemctl list-unit-files openrgb.service >/dev/null 2>&1; then
+  echo "Habilitando o serviço do OpenRGB (necessário para aplicar cores)..."
+  if sudo systemctl enable --now openrgb.service; then
+    echo "✔ openrgb.service habilitado e ativo."
+  else
+    echo "⚠ Não foi possível habilitar o openrgb.service (sudo indisponível?)." >&2
+    echo "  Rode manualmente: sudo systemctl enable --now openrgb.service" >&2
+  fi
+else
+  echo "⚠ openrgb.service não encontrado; as cores da placa-mãe não serão aplicadas." >&2
+fi
+
 # 2. Compilar o binário Rust.
 if ! command -v cargo >/dev/null 2>&1; then
   echo "cargo (Rust) é necessário para compilar o OmaAura. Instale com: omarchy pkg add rust" >&2
@@ -35,7 +57,10 @@ if [ ! -x "$BIN" ]; then
 fi
 
 # 3. Copiar arquivos do plugin para ~/.config/omarchy/plugins/
+#    O daemon (omaaura.service) segura o binário em execução: sem parar antes,
+#    o `cp` falha com "Text file busy" e a atualização fica pela metade.
 echo "Copiando arquivos do plugin para $TARGET_PLUGIN_DIR..."
+systemctl --user stop omaaura.service 2>/dev/null || true
 mkdir -p "$TARGET_PLUGIN_DIR/bin"
 cp "$PROJECT_DIR"/manifest.json "$PROJECT_DIR"/BarWidget.qml "$PROJECT_DIR"/README.md "$PROJECT_DIR"/LICENSE "$TARGET_PLUGIN_DIR"/
 cp "$PROJECT_DIR"/bin/omaaura "$PROJECT_DIR"/bin/omaaura-theme "$TARGET_PLUGIN_DIR"/bin/

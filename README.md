@@ -2,12 +2,18 @@
 
 Plugin para o [Omarchy Linux](https://omarchy.org/) que sincroniza automaticamente as cores dos LEDs de hardware (ASUS Aura, placas-mãe ROG/TUF e placas de vídeo GeForce RTX) com o tema visual ativo da área de trabalho.
 
-`id`: `io.github.latex.omaaura-theme` · categoria: **Hardware** · versão: **2.0.0 (Rust)**
+`id`: `io.github.latex.omaaura-theme` · categoria: **Hardware** · versão: **2.0.1 (Rust)**
 
 > **v2 (2026):** reescrito de Python para um **binário Rust** único. Zero dependência de Python.
 > Corrige o defeito apontado na revisão do marketplace: o backend OpenRGB **nunca** mais roda
 > `openrgb -c` sem filtro `-d` — se os alvos não forem resolvidos, a escrita é ignorada em vez de
 > atingir todos os dispositivos (inclusive a GPU controlada por I2C).
+>
+> **v2.0.1:** corrige a regressão "a cor não muda mais". O CLI do OpenRGB **só aplica cor
+> direta com o servidor SDK rodando**; em modo solitário ele detectava os dispositivos, **não
+> escrevia nada** e ainda saía com *exit 0* — o plugin reportava sucesso sem tocar no hardware.
+> O `install.sh` agora habilita o `openrgb.service` e o backend falha alto (em vez de mentir)
+> quando o servidor não está no ar. Detalhes na issue #4.
 
 ---
 
@@ -32,6 +38,13 @@ Plugin para o [Omarchy Linux](https://omarchy.org/) que sincroniza automaticamen
 
 - **Omarchy Linux** (com `omarchy-shell` / Quickshell).
 - **OpenRGB** — controle da placa-mãe Aura, RAM e headers ARGB: `omarchy pkg add openrgb`.
+  - ⚠️ **O serviço do OpenRGB é obrigatório.** O CLI `openrgb -d N -c COR` só escreve de verdade
+    em *modo client*, isto é, conectado ao servidor SDK. Sem ele, o comando detecta os devices,
+    **não escreve nada** e sai com *exit 0* (falha silenciosa). O `install.sh` já habilita e inicia
+    o serviço; para instalar manualmente:
+    ```bash
+    sudo systemctl enable --now openrgb.service
+    ```
 - **Rust / Cargo** (≥ 1.85) — o CLI é um binário Rust compilado por `install.sh`: `omarchy pkg add rust`.
 - **ImageMagick** (`magick`) — extração das cores predominantes do wallpaper: `omarchy pkg add imagemagick`.
 - **Acesso I2C** (`/dev/i2c-*`) para a GPU via ENE Aura. O `install.sh` pode
@@ -41,6 +54,10 @@ Plugin para o [Omarchy Linux](https://omarchy.org/) que sincroniza automaticamen
   sudo usermod -aG i2c "$USER"
   ```
 - **systemd --user** — o serviço `omaaura.service` mantém os LEDs sincronizados em segundo plano.
+
+> **Diagnóstico rápido:** se o widget mostra a cor mas os LEDs não mudam, rode
+> `systemctl is-active openrgb.service` — precisa estar `active`. O `omaaura set #ff0055`
+> também avisa e sai com código ≠ 0 quando o servidor não está rodando.
 
 ---
 
